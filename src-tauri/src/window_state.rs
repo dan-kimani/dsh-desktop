@@ -169,6 +169,6 @@ mod tests {
             height: 800,
             maximized: true,
         };
-        assert_eq!(sanitize(state).unwrap().maximized, true);
+        assert!(sanitize(state).unwrap().maximized);
     }
 }

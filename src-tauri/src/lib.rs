@@ -47,9 +47,9 @@ pub fn run() {
         })
         .on_menu_event(|app, event| menu::on_menu_event(app, event.id().as_ref()))
         .on_window_event(|window, event| match event {
-            WindowEvent::Destroyed => harness::shutdown(&window.app_handle()),
+            WindowEvent::Destroyed => harness::shutdown(window.app_handle()),
             WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
-                window_state::remember(&window.app_handle())
+                window_state::remember(window.app_handle());
             }
             _ => {}
         })
