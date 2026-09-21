@@ -1,4 +1,4 @@
-//! Wrapper around the bundled DeepSeek Harness runtime.
+//! Wrapper around the bundled harness runtime.
 //!
 //! Responsibilities, and nothing else:
 //!   1. locate the bundled runtime inside the installed resource directory
@@ -429,7 +429,7 @@ pub async fn start(app: AppHandle) {
     if let Err(detail) = ensure_profile(&app, &entry, &home).await {
         return report_failure(
             &app,
-            "Could not initialize the DeepSeek Harness profile.",
+            "Could not initialize the harness profile.",
             detail,
         );
     }
@@ -464,7 +464,7 @@ pub async fn start(app: AppHandle) {
         Err(detail) => {
             return report_failure(
                 &app,
-                "Could not start the DeepSeek Harness runtime.",
+                "Could not start the harness runtime.",
                 detail,
             )
         }
@@ -505,7 +505,7 @@ pub async fn start(app: AppHandle) {
                 timed_out = true;
                 report_failure(
                     &app,
-                    "DeepSeek Harness did not become ready in time.",
+                    "The harness did not become ready in time.",
                     format!(
                         "waited {}s for a line matching {:?}.\n\
                          If this persists, run the app from a terminal to see runtime output.",
@@ -531,7 +531,7 @@ pub async fn start(app: AppHandle) {
                     Ok(()) => eprintln!("dsh-desktop: UI loaded from {origin}"),
                     Err(detail) => report_failure(
                         &app,
-                        "Could not open the DeepSeek Harness interface.",
+                        "Could not open the harness interface.",
                         detail,
                     ),
                 }
@@ -573,7 +573,7 @@ pub async fn start(app: AppHandle) {
                                 navigated = true;
                                 report_failure(
                                     &app,
-                                    "Could not open the DeepSeek Harness interface.",
+                                    "Could not open the harness interface.",
                                     detail,
                                 );
                             }
@@ -600,7 +600,7 @@ pub async fn start(app: AppHandle) {
                 if !navigated {
                     report_failure(
                         &app,
-                        "The DeepSeek Harness runtime stopped before it became ready.",
+                        "The harness runtime stopped before it became ready.",
                         format!("exit code {:?}\n{}", payload.code, stderr_tail.trim()),
                     );
                 }

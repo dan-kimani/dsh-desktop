@@ -16,7 +16,7 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src ipc: http://ipc.localhost"
     />
-    <title>DeepSeek Harness</title>
+    <title>dsh-desktop</title>
     <style>
       :root {
         color-scheme: dark light;
@@ -102,14 +102,14 @@
     <main>
       <div id="progress">
         <div class="spinner" role="status" aria-label="Starting"></div>
-        <h1>Starting DeepSeek Harness</h1>
+        <h1>Starting dsh-desktop</h1>
         <p class="sub" id="stage">Preparing the bundled runtime…</p>
         <pre id="log" aria-live="polite"></pre>
         <p class="runtime" id="runtime"></p>
       </div>
 
       <section id="failure" role="alert">
-        <h2 id="failure-title">DeepSeek Harness could not start</h2>
+        <h2 id="failure-title">dsh-desktop could not start</h2>
         <p id="failure-message"></p>
         <pre id="failure-detail"></pre>
         <button id="retry" type="button">Retry</button>

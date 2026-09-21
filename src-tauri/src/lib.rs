@@ -1,4 +1,4 @@
-//! Tauri application entry point for the DeepSeek Harness desktop wrapper.
+//! Tauri application entry point for the dsh-desktop wrapper.
 //!
 //! Lifecycle: install the menu, show a loading webview, start the bundled
 //! harness, navigate to the URL it announces, and guarantee the sidecar dies
@@ -54,7 +54,7 @@ pub fn run() {
             _ => {}
         })
         .build(tauri::generate_context!())
-        .expect("failed to build the DeepSeek Harness desktop application")
+        .expect("failed to build the dsh-desktop application")
         .run(|app, event| {
             if let tauri::RunEvent::ExitRequested { .. } = event {
                 harness::shutdown(app);

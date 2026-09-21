@@ -206,19 +206,19 @@ jobs:
         run: |
           set -euo pipefail
           tag="dsh-desktop-v${VERSION}"
-          notes="Repackages DeepSeek Harness \`${VERSION}\` from npm.
+          notes="dsh-desktop ${VERSION}, wrapping DeepSeek Harness.
 
           Bundled runtime: \`@deepseek-ai/dsh@${VERSION}\` (npm dist-tag per \`config/runtime.json\`).
           Platform-native build; each artifact contains its own Node runtime.
 
-          Upstream is not affiliated with this wrapper."
+          Not affiliated with or endorsed by DeepSeek."
           # Re-running a release must be idempotent rather than failing on an
           # existing tag.
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" release/* --clobber
           else
             gh release create "$tag" release/* \
-              --title "DeepSeek Harness ${VERSION} (desktop wrapper)" \
+              --title "dsh-desktop ${VERSION}" \
               --notes "$notes"
           fi
 

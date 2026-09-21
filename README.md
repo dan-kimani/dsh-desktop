@@ -96,16 +96,19 @@ and the npm scripts one command surface.
 
 Artifacts land in `src-tauri/target/release/bundle/`:
 
-| Target           | Path                                                       |
-| ---------------- | ---------------------------------------------------------- |
-| Executable       | `src-tauri/target/release/dsh-desktop` (`.exe` on Windows) |
-| Debian           | `bundle/deb/DeepSeek Harness_<version>_amd64.deb`          |
-| RPM              | `bundle/rpm/DeepSeek Harness-<version>-1.x86_64.rpm`       |
-| NSIS             | `bundle/nsis/DeepSeek Harness_<version>_x64-setup.exe`     |
-| macOS app        | `bundle/macos/DeepSeek Harness.app`                        |
-| macOS disk image | `bundle/dmg/DeepSeek Harness_<version>_<arch>.dmg`         |
+Every installer name carries the version, taken from `version` in `tauri.conf.json`.
 
-Measured on Linux x64: 85 MB `.deb`, 86 MB `.rpm`.
+| Target           | Path                                                          |
+| ---------------- | ------------------------------------------------------------- |
+| Executable       | `src-tauri/target/release/dsh-desktop` (`.exe` on Windows)     |
+| Debian           | `bundle/deb/dsh-desktop_<version>_amd64.deb`                   |
+| RPM              | `bundle/rpm/dsh-desktop-<version>-1.x86_64.rpm`                |
+| NSIS             | `bundle/nsis/dsh-desktop_<version>_<arch>-setup.exe`           |
+| macOS app        | `bundle/macos/dsh-desktop.app`                                 |
+| macOS disk image | `bundle/dmg/dsh-desktop_<version>_<arch>.dmg`                  |
+
+Measured on Linux x64: 76 MB `.deb`. The NSIS architecture token is `x64` or `arm64`, so do
+not hardcode it.
 
 ### Releases
 

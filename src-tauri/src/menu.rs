@@ -48,13 +48,14 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
         .build()?;
 
     let docs = MenuItemBuilder::with_id("docs", "Documentation").build(app)?;
-    let upstream = MenuItemBuilder::with_id("upstream", "DeepSeek Harness on GitHub").build(app)?;
+    let upstream =
+        MenuItemBuilder::with_id("upstream", "DeepSeek Harness on GitHub").build(app)?;
     let about = PredefinedMenuItem::about(
         app,
-        Some("About DeepSeek Harness"),
+        Some("About dsh-desktop"),
         Some(
             AboutMetadataBuilder::new()
-                .name(Some("DeepSeek Harness"))
+                .name(Some("dsh-desktop"))
                 .version(Some(env!("CARGO_PKG_VERSION")))
                 .comments(Some(
                     "Desktop wrapper around the DeepSeek Harness web application. \
