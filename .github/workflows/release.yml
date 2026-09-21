@@ -112,6 +112,8 @@ jobs:
             curl wget file libssl-dev
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - uses: swatinem/rust-cache@v2
         with:
@@ -119,6 +121,13 @@ jobs:
           # The cache key must include the runtime version: a stale cache would
           # otherwise let a new dsh payload ship with an old compiled runtime.
           key: dsh-${{ needs.detect.outputs.version }}
+
+      - name: Lint the Rust code
+        # Runs before the payload is assembled: it needs no runtime, and failing
+        # here is far cheaper than discovering the problem after a few minutes of
+        # fetching and trimming. `-D warnings` makes any lint fail the job.
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D warnings
 
       - name: Assemble the bundled runtime
         env:
