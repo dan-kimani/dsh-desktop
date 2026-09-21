@@ -1,0 +1,42 @@
+[package]
+name = "dsh-desktop"
+version = "0.1.5-rc.2"
+description = "Tauri desktop wrapper around the DeepSeek Harness web application"
+authors = ["dsh-desktop contributors"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "dsh_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex-lite = "0.1"
+# `time`/`macros` back the readiness deadline; `net`/`io-util` back the plain-HTTP
+# session exchange. `rt` comes from Tauri's own async runtime; these features are
+# additive and do not create a second runtime.
+tokio = { version = "1", default-features = false, features = ["time", "macros", "net", "io-util"] }
+# Parsing the launcher's URL for the session exchange (already in the tree via Tauri).
+url = "2"
+
+[features]
+# This feature is used for production builds where `devUrl` points to the
+# filesystem rather than to a running dev server.
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
