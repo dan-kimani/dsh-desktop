@@ -1,0 +1,33 @@
+{
+  "$comment": "Single source of truth for the bundled runtime. Consumed by scripts/fetch-runtime.mjs, scripts/resolve-version.mjs and src-tauri/src/harness.rs. Change the exec/flags here, not in Rust.",
+  "npm": {
+    "package": "@deepseek-ai/dsh",
+    "tag": "latest",
+    "$tagComment": "Upstream publishes release-candidates as `latest` (see README). Use `next` or `alpha` to track those channels instead."
+  },
+  "node": {
+    "major": 24,
+    "$majorComment": "Must support `--expose-internals` and node:module.stripTypeScriptTypes. Node 24 LTS 'Krypton'. Never Bun: see README 'Why not Bun'."
+  },
+  "profile": {
+    "name": "tauri",
+    "sourceTemplate": "web",
+    "$comment": "The dedicated profile this wrapper owns. Never 'desktop' (reserved for the official Electron app) and never 'web' (owned by the CLI), so the three apps cannot corrupt each other's node_modules."
+  },
+  "launch": {
+    "host": "127.0.0.1",
+    "port": 0,
+    "$portComment": "0 lets the OS pick a free port; the wrapper learns it by parsing stdout.",
+    "noOpen": true,
+    "$noOpenComment": "Suppresses the default-browser handoff so the UI opens only in our webview.",
+    "extraArgs": [],
+    "$extraArgsComment": "Extra args appended after the launcher flags, e.g. [\"--patch\", \"/abs/path.yml\"] for build-time overlays."
+  },
+  "stdout": {
+    "urlPattern": "dsh web:\\s+(https?://\\S+)",
+    "$urlPatternComment": "The launcher prints `dsh web: http://127.0.0.1:PORT/?token=...`. The token is a one-time exchange credential for the cookie, not a session token.",
+    "readyTimeoutMs": 120000,
+    "cookieSettleMs": 150,
+    "$cookieSettleMsComment": "Grace period for the webview to store the session cookie after following the launcher's 303, before the authenticated navigation is issued. The 401 document that redirect targets is on screen for this long, so this is also the visible authentication flash. Measured against the running server the redirect completes in 10-20ms; this is margin, not a wait for work. Raise it if a slow machine ever loads the UI unauthenticated."
+  }
+}
