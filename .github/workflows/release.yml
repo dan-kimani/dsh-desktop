@@ -71,15 +71,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Ubuntu 22.04 sets the glibc floor: an artifact built here runs on
-          # newer distributions, but not the reverse.
-          # 22.04 is the baseline: it is built against the older glibc, so it also
-          # runs on newer distributions.
-          - name: linux-x64 (ubuntu-22.04)
+          # 22.04 sets the glibc floor: Rust links against the runner's glibc, so a
+          # build here also runs on newer distributions, but not the reverse. The
+          # payload's own floor is lower still (its native addons need at most
+          # GLIBC_2.28), so nothing is gained by also building on 24.04.
+          - name: linux-x64
             os: ubuntu-22.04
-            bundles: deb,rpm
-          - name: linux-x64 (ubuntu-24.04)
-            os: ubuntu-24.04
             bundles: deb,rpm
           - name: windows-x64
             os: windows-latest
