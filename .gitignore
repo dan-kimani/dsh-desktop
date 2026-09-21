@@ -1,0 +1,33 @@
+# Generated runtime payload — never commit (300MB+). Rebuilt by scripts/fetch-runtime.mjs
+/runtime/
+# Node binary staged for Tauri's externalBin
+/src-tauri/binaries/
+# Tauri's copy of the runtime payload used at bundle time. Ignore the whole
+# resources tree: only the staged payload ever lives there, and ignoring the file
+# rather than the parent would let a stray file at that path become committable.
+/src-tauri/resources/
+# npm cache used while assembling the runtime
+/.npm-cache/
+
+# Build output. The dot-prefixed variants exist because a read-only ~/.cargo forces
+# CARGO_TARGET_DIR / CARGO_HOME to be redirected into the workspace, and a build run
+# that way must not become committable.
+/target/
+/.target/
+/.target-*/
+/src-tauri/target/
+/.cargo-home/
+/dist/
+node_modules/
+
+# Local scratch used for probing the upstream runtime
+/.probe/
+
+# Updater signing keys — NEVER commit. Losing the private key permanently
+# strands every installed copy, so it lives in CI secrets only.
+/.keys/
+*.key
+
+# Local env
+.env
+.env.local
