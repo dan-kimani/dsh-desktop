@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      This page is local and self-contained. It never loads anything remote, so a
+      tight CSP is safe here. The harness UI itself is served from
+      http://127.0.0.1:<port> and is NOT subject to this policy.
+
+      `withGlobalTauri` exposes window.__TAURI__ so this page can listen for
+      startup progress without shipping a JS bundler. No shell permission is
+      granted to the webview: every sidecar operation happens in Rust.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src ipc: http://ipc.localhost"
+    />
+    <title>DeepSeek Harness</title>
+    <style>
+      :root {
+        color-scheme: dark light;
+        --bg: #0e1116;
+        --fg: #e6edf3;
+        --dim: #8b949e;
+        --accent: #4d6bfe;
+        --danger: #f85149;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #ffffff;
+          --fg: #1f2328;
+          --dim: #656d76;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: var(--bg);
+        color: var(--fg);
+        font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+      }
+      main { width: min(560px, 88vw); text-align: center; }
+      h1 { font-size: 17px; font-weight: 600; margin: 0 0 6px; letter-spacing: -0.01em; }
+      p.sub { color: var(--dim); margin: 0 0 28px; font-size: 13px; }
+      .spinner {
+        width: 30px;
+        height: 30px;
+        margin: 0 auto 26px;
+        border: 2.5px solid color-mix(in srgb, var(--fg) 16%, transparent);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) {
+        .spinner { animation-duration: 2.4s; }
+      }
+      pre#log {
+        text-align: left;
+        margin: 0;
+        padding: 12px 14px;
+        max-height: 220px;
+        overflow: auto;
+        background: color-mix(in srgb, var(--fg) 5%, transparent);
+        border: 1px solid color-mix(in srgb, var(--fg) 10%, transparent);
+        border-radius: 9px;
+        font: 11.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        color: var(--dim);
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      p.runtime {
+        color: var(--dim);
+        font-size: 11px;
+        margin: 10px 0 0;
+        min-height: 16px;
+      }
+      #failure { display: none; text-align: left; }
+      #failure.show { display: block; }
+      #failure h2 { color: var(--danger); font-size: 15px; margin: 0 0 8px; }
+      #failure p { margin: 0 0 14px; }
+      #failure pre { border-color: color-mix(in srgb, var(--danger) 35%, transparent); color: var(--fg); }
+      button {
+        margin-top: 16px;
+        padding: 8px 16px;
+        font: inherit;
+        font-size: 13px;
+        color: #fff;
+        background: var(--accent);
+        border: 0;
+        border-radius: 7px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div id="progress">
+        <div class="spinner" role="status" aria-label="Starting"></div>
+        <h1>Starting DeepSeek Harness</h1>
+        <p class="sub" id="stage">Preparing the bundled runtime…</p>
+        <pre id="log" aria-live="polite"></pre>
+        <p class="runtime" id="runtime"></p>
+      </div>
+
+      <section id="failure" role="alert">
+        <h2 id="failure-title">DeepSeek Harness could not start</h2>
+        <p id="failure-message"></p>
+        <pre id="failure-detail"></pre>
+        <button id="retry" type="button">Retry</button>
+      </section>
+    </main>
+
+    <script>
+      // This page only reports progress; it never drives the runtime. The Rust
+      // side owns spawning, URL parsing and navigation, so a failure here is
+      // purely cosmetic and cannot leave the app in a broken state.
+      const logEl = document.getElementById('log');
+      const stageEl = document.getElementById('stage');
+      const progressEl = document.getElementById('progress');
+      const failureEl = document.getElementById('failure');
+
+      function appendLog(line) {
+        const atBottom = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 4;
+        logEl.textContent += (logEl.textContent ? '\n' : '') + line;
+        // Keep the buffer bounded; harness startup can be chatty.
+        const lines = logEl.textContent.split('\n');
+        if (lines.length > 400) logEl.textContent = lines.slice(-400).join('\n');
+        if (atBottom) logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function showFailure(payload) {
+        progressEl.style.display = 'none';
+        failureEl.classList.add('show');
+        document.getElementById('failure-message').textContent = payload.message || 'Unknown error.';
+        document.getElementById('failure-detail').textContent = payload.detail || '';
+      }
+
+      const api = window.__TAURI__;
+      if (!api || !api.event) {
+        stageEl.textContent = 'Startup progress is unavailable.';
+      } else {
+        api.event.listen('dsh-log', (event) => {
+          const line = String(event.payload ?? '');
+          appendLog(line);
+          if (/initializing profile/i.test(line)) stageEl.textContent = 'Initializing your profile (first launch only)…';
+          else if (/starting the harness runtime/i.test(line)) stageEl.textContent = 'Starting the harness runtime…';
+          else if (/dsh web:/i.test(line)) stageEl.textContent = 'Opening the interface…';
+        });
+        api.event.listen('dsh-failed', (event) => showFailure(event.payload ?? {}));
+        api.event.listen('dsh-runtime', (event) => {
+          const p = event.payload ?? {};
+          if (p.dsh_version || p.target) {
+            document.getElementById('runtime').textContent =
+              'Bundled runtime · dsh ' + (p.dsh_version ?? '?') + ' · ' + (p.target ?? '?');
+          }
+        });
+
+      }
+
+      // Reloading re-runs the whole flow: the Rust side restarts the runtime on
+      // a fresh app start. A single-instance lock keeps that from racing itself.
+      document.getElementById('retry').addEventListener('click', () => window.location.reload());
+    </script>
+  </body>
+</html>
