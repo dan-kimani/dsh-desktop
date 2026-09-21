@@ -114,8 +114,8 @@ not hardcode it.
 
 `.github/workflows/release.yml` runs daily and on demand. It resolves the version from the
 npm dist-tag in `config/runtime.json` and compares it to the committed `.dsh-version`; if
-unchanged it does nothing. Otherwise it builds on `ubuntu-22.04`, `windows-latest`, `macos-14`
-and `macos-13`, publishes `dsh-desktop-v<version>` with the installers attached and release notes
+unchanged it does nothing. Otherwise it builds on `ubuntu-22.04`, `windows-latest`, `macos-15`
+and `macos-15-intel`, publishes `dsh-desktop-v<version>` with the installers attached and release notes
 listing the commits since the previous tag, then commits the new marker.
 
 Linux uses 22.04 only, for its lower glibc: a binary built there also runs on newer
