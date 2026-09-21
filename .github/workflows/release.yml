@@ -1,0 +1,243 @@
+name: Release
+
+# Upstream publishes NO GitHub release assets (all 18 releases are tag-only), so
+# the npm registry is the only machine-readable release signal. This pipeline
+# therefore polls npm for @deepseek-ai/dsh and only builds when the version
+# differs from the committed .dsh-version marker.
+#
+# The build matrix is per-target rather than cross-compiled: the runtime bundles
+# platform-specific native addons (koffi, node-pty, sharp/libvips) and a
+# platform-specific Node binary, so each artifact must be assembled on its own OS.
+
+on:
+  schedule:
+    # Daily at 06:17 UTC. Off the hour to avoid the busiest GitHub Actions slot.
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Build even when the upstream version is unchanged"
+        type: boolean
+        default: false
+      version:
+        description: "Pin an exact @deepseek-ai/dsh version (blank = use configured dist-tag)"
+        type: string
+        required: false
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Decide whether there is anything to build ────────────────────────────────
+  detect:
+    name: Detect upstream release
+    runs-on: ubuntu-24.04
+    outputs:
+      updated: ${{ steps.resolve.outputs.updated }}
+      version: ${{ steps.resolve.outputs.version }}
+      tauri_version: ${{ steps.resolve.outputs.tauri_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Resolve the target version
+        id: resolve
+        env:
+          FORCE: ${{ inputs.force }}
+          PINNED: ${{ inputs.version }}
+        run: |
+          args=()
+          if [ -n "$PINNED" ]; then args+=(--force "$PINNED"); fi
+          node scripts/resolve-version.mjs "${args[@]}"
+          if [ "$FORCE" = "true" ]; then
+            echo "force=true, building regardless of version drift"
+            echo "updated=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ── Build each target on its own OS ─────────────────────────────────────────
+  build:
+    name: Build ${{ matrix.name }}
+    needs: detect
+    if: needs.detect.outputs.updated == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Ubuntu 22.04 sets the glibc floor: an artifact built here runs on
+          # newer distributions, but not the reverse.
+          # 22.04 is the baseline: it is built against the older glibc, so it also
+          # runs on newer distributions.
+          - name: linux-x64 (ubuntu-22.04)
+            os: ubuntu-22.04
+            bundles: deb,rpm
+          - name: linux-x64 (ubuntu-24.04)
+            os: ubuntu-24.04
+            bundles: deb,rpm
+          - name: windows-x64
+            os: windows-latest
+            bundles: nsis
+          # macOS builds must run on macOS: bundling needs the platform SDK, and
+          # a valid .icns can only be produced by `iconutil`. macos-14 is Apple
+          # Silicon, macos-13 the last Intel image.
+          - name: macos-arm64
+            os: macos-14
+            bundles: app,dmg
+          - name: macos-x64
+            os: macos-13
+            bundles: app,dmg
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libgtk-3-dev \
+            librsvg2-dev \
+            libayatana-appindicator3-dev \
+            patchelf \
+            build-essential \
+            curl wget file libssl-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          # The cache key must include the runtime version: a stale cache would
+          # otherwise let a new dsh payload ship with an old compiled runtime.
+          key: dsh-${{ needs.detect.outputs.version }}
+
+      - name: Assemble the bundled runtime
+        env:
+          DSH_VERSION: ${{ needs.detect.outputs.version }}
+        run: |
+          node scripts/fetch-runtime.mjs --version "$DSH_VERSION"
+          node scripts/trim-runtime.mjs
+          node scripts/prepare-bundle.mjs
+
+      - name: Smoke test the runtime
+        # This is the guard on the two upstream seams we do not control: the
+        # `dsh web: <url>` stdout contract and the token -> cookie handshake.
+        # A break here fails the build instead of shipping a blank window.
+        run: node scripts/smoke-test.mjs
+        env:
+          # Bundled node is staged as a sidecar; use it so we test exactly what ships.
+          DSH_SMOKE_USE_BUNDLED_NODE: "1"
+
+      - name: Stamp the application version
+        # The wrapper mirrors upstream's version so a build is traceable back to
+        # the release it repackaged. tauri.conf.json is generated, not hand-edited.
+        env:
+          TAURI_VERSION: ${{ needs.detect.outputs.tauri_version }}
+        run: node scripts/set-version.mjs "$TAURI_VERSION"
+        shell: bash
+
+      - name: Generate the macOS icon
+        # `.icns` is a macOS-only format; the script is a no-op elsewhere.
+        run: node scripts/make-icns.mjs
+
+      - name: Build the application
+        # Bundle formats come from the matrix. AppImage is deliberately absent: it
+        # needs FUSE via `linuxdeploy`, which could not be verified here, so it is
+        # opt-in (add it to the linux rows) rather than a release risk.
+        run: node scripts/build.mjs --bundles "${{ matrix.bundles }}"
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-desktop-${{ matrix.name }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/rpm/*.rpm
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/macos/*.app.tar.gz
+
+  # ── Publish the release and record the built version ─────────────────────────
+  publish:
+    name: Publish release
+    needs: [detect, build]
+    if: needs.detect.outputs.updated == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect installers
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          find artifacts -type f \( \
+            -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.exe' \
+            -o -name '*.dmg' -o -name '*.app.tar.gz' \
+          \) -exec cp {} release/ \;
+          echo "Collected $(find release -type f | wc -l) artifacts:"
+          ls -lh release/
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.detect.outputs.version }}
+        run: |
+          set -euo pipefail
+          tag="dsh-desktop-v${VERSION}"
+          notes="Repackages DeepSeek Harness \`${VERSION}\` from npm.
+
+          Bundled runtime: \`@deepseek-ai/dsh@${VERSION}\` (npm dist-tag per \`config/runtime.json\`).
+          Platform-native build; each artifact contains its own Node runtime.
+
+          Upstream is not affiliated with this wrapper."
+          # Re-running a release must be idempotent rather than failing on an
+          # existing tag.
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" release/* --clobber
+          else
+            gh release create "$tag" release/* \
+              --title "DeepSeek Harness ${VERSION} (desktop wrapper)" \
+              --notes "$notes"
+          fi
+
+
+      - name: Record the built version
+        # Committing the marker is what stops the next scheduled run from
+        # rebuilding the same release. GITHUB_TOKEN pushes do not retrigger
+        # workflows, so this cannot loop.
+        env:
+          VERSION: ${{ needs.detect.outputs.version }}
+        run: |
+          set -euo pipefail
+          echo "$VERSION" > .dsh-version
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .dsh-version
+          if git diff --cached --quiet; then
+            echo "marker unchanged"
+          else
+            git commit -m "chore: record built dsh version ${VERSION}"
+            git push
+          fi
