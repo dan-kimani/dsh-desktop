@@ -64,13 +64,25 @@ function hostTriple() {
 
 /**
  * Run a command, inheriting stdio so build output stays visible.
+ *
+ * `shell` is off by default: enabling it would hand our arguments to `cmd.exe` on
+ * Windows, where the quoted `-LiteralPath '<path>'` form passed to PowerShell is
+ * re-parsed and breaks. Only `npm` needs it — on Windows npm is a `.cmd` shim, and
+ * a shell-less spawn does not consult `PATHEXT`, so it fails with ENOENT.
+ *
  * @param {string} command
  * @param {string[]} args
  * @param {object} [options] - spawn options; `cwd` defaults to the repo root
  */
 function run(command, args, options = {}) {
   console.log(`$ ${command} ${args.join(' ')}`);
-  const result = spawnSync(command, args, { stdio: 'inherit', cwd: ROOT, shell: false, ...options });
+  const needsShell = process.platform === 'win32' && command === 'npm';
+  const result = spawnSync(command, args, {
+    stdio: 'inherit',
+    cwd: ROOT,
+    shell: needsShell,
+    ...options,
+  });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${command} exited with code ${result.status}`);
 }
