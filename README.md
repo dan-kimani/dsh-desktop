@@ -115,8 +115,9 @@ not hardcode it.
 `.github/workflows/release.yml` runs daily and on demand. It resolves the version from the
 npm dist-tag in `config/runtime.json` and compares it to the committed `.dsh-version`; if
 unchanged it does nothing. Otherwise it builds on `ubuntu-22.04` (the glibc floor),
-`ubuntu-24.04`, `windows-latest`, `macos-14` and `macos-13`, publishes `dsh-desktop-v<version>`,
-and commits the new marker.
+`ubuntu-24.04`, `windows-latest`, `macos-14` and `macos-13`, publishes `dsh-desktop-v<version>`
+with the installers attached and release notes listing the commits since the previous tag, then
+commits the new marker.
 
 Builds must run on the target OS, because the payload contains platform-specific native addons
 (`koffi`, `node-pty`, `sharp`) and a platform-specific Node binary. The app version mirrors the

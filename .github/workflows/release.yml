@@ -179,6 +179,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The release notes summarise commits since the previous tag, which a
+          # shallow clone cannot see.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -193,7 +197,7 @@ jobs:
           set -euo pipefail
           mkdir -p release
           find artifacts -type f \( \
-            -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.exe' \
+            -name '*.deb' -o -name '*.rpm' -o -name '*.exe' \
             -o -name '*.dmg' -o -name '*.app.tar.gz' \
           \) -exec cp {} release/ \;
           echo "Collected $(find release -type f | wc -l) artifacts:"
@@ -206,20 +210,19 @@ jobs:
         run: |
           set -euo pipefail
           tag="dsh-desktop-v${VERSION}"
-          notes="dsh-desktop ${VERSION}, wrapping DeepSeek Harness.
-
-          Bundled runtime: \`@deepseek-ai/dsh@${VERSION}\` (npm dist-tag per \`config/runtime.json\`).
-          Platform-native build; each artifact contains its own Node runtime.
-
-          Not affiliated with or endorsed by DeepSeek."
+          # Notes list the commits since the previous release. Needs full history
+          # and tags, so checkout must not be shallow.
+          node scripts/release-notes.mjs --version "$VERSION" --out notes.md
+          echo "--- release notes ---"; cat notes.md
           # Re-running a release must be idempotent rather than failing on an
           # existing tag.
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" release/* --clobber
+            gh release edit "$tag" --notes-file notes.md
           else
             gh release create "$tag" release/* \
               --title "dsh-desktop ${VERSION}" \
-              --notes "$notes"
+              --notes-file notes.md
           fi
 
 

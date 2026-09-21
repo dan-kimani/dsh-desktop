@@ -21,6 +21,7 @@
     "build:macos": "node scripts/build.mjs --bundles app,dmg",
     "icns": "node scripts/make-icns.mjs",
     "resolve-version": "node scripts/resolve-version.mjs",
+    "release-notes": "node scripts/release-notes.mjs",
     "set-version": "node scripts/set-version.mjs --from-marker"
   }
 }
