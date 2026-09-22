@@ -28,6 +28,19 @@ regex-lite = "0.1"
 tokio = { version = "1", default-features = false, features = ["time", "macros", "net", "io-util"] }
 # Parsing the launcher's URL for the session exchange (already in the tree via Tauri).
 url = "2"
+# PNG-encoding clipboard images for the WebKitGTK paste bridge. Only the `png`
+# codec is used, so the default codec set is switched off.
+image = { version = "0.25", default-features = false, features = ["png"] }
+# Already in the tree via Tauri; declared directly for the data URL.
+base64 = "0.22"
+
+# WebKitGTK never surfaces clipboard images through the Web API (see
+# src/clipboard.rs), so the host reads them natively instead. Other platforms
+# already expose them to the paste event, so the bridge is Linux-only.
+[target.'cfg(target_os = "linux")'.dependencies]
+# `wayland-data-control` is required for a Wayland session to see the clipboard;
+# the default X11 backend alone cannot.
+arboard = { version = "3", features = ["wayland-data-control"] }
 
 [features]
 # This feature is used for production builds where `devUrl` points to the

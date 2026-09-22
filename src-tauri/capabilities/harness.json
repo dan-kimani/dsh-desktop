@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "harness",
+  "description": "The loopback harness UI. Restricted to the native clipboard bridge and nothing else, because this origin is a remote URL rather than the packaged shell.",
+  "windows": [
+    "main"
+  ],
+  "remote": {
+    "urls": [
+      "http://127.0.0.1:*",
+      "http://localhost:*"
+    ]
+  },
+  "permissions": [
+    "allow-read-clipboard-image"
+  ]
+}

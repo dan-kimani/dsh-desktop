@@ -4,11 +4,12 @@
 //! harness, navigate to the URL it announces, and guarantee the sidecar dies
 //! with the app.
 
+mod clipboard;
 mod harness;
 mod menu;
 mod window_state;
 
-use tauri::{Manager, WindowEvent};
+use tauri::{Manager, WebviewWindowBuilder, WindowEvent};
 
 use harness::SidecarState;
 
@@ -29,6 +30,16 @@ pub fn run() {
         .manage(SidecarState(Default::default()))
         .manage(harness::HarnessOrigin::default())
         .setup(|app| {
+            // Created here rather than by Tauri's own config pass so the
+            // clipboard-image shim lands before any harness script runs. The
+            // window options stay in `tauri.conf.json`; only `create` is off.
+            // `SHIM_JS` is empty off Linux, where paste already carries images.
+            if let Some(config) = app.config().app.windows.first().cloned() {
+                WebviewWindowBuilder::from_config(app.handle(), &config)?
+                    .initialization_script(clipboard::SHIM_JS)
+                    .build()?;
+            }
+
             if let Err(error) = menu::install(app.handle()) {
                 // A missing menu must not stop the app from starting.
                 eprintln!("dsh-desktop: could not install the menu: {error}");
@@ -53,6 +64,7 @@ pub fn run() {
             }
             _ => {}
         })
+        .invoke_handler(tauri::generate_handler![clipboard::read_clipboard_image])
         .build(tauri::generate_context!())
         .expect("failed to build the dsh-desktop application")
         .run(|app, event| {
