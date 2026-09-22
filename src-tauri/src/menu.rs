@@ -12,6 +12,13 @@ use tauri::{AppHandle, Manager};
 
 use crate::harness;
 
+/// The name shown to the user, which is deliberately not `productName`.
+///
+/// `productName` in `tauri.conf.json` names the installers and the Linux resource
+/// directory, and stays `dsh-desktop` so artifacts are identifiable. What the user
+/// sees is the product this wrapper presents, which is the harness itself.
+pub const APP_NAME: &str = "DeepSeek Harness";
+
 /// Menu item ids handled in [`on_menu_event`].
 pub const RELOAD: &str = "reload";
 pub const OPEN_IN_BROWSER: &str = "open_in_browser";
@@ -52,10 +59,10 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
         MenuItemBuilder::with_id("upstream", "DeepSeek Harness on GitHub").build(app)?;
     let about = PredefinedMenuItem::about(
         app,
-        Some("About dsh-desktop"),
+        Some(&format!("About {APP_NAME}")),
         Some(
             AboutMetadataBuilder::new()
-                .name(Some("dsh-desktop"))
+                .name(Some(APP_NAME))
                 .version(Some(env!("CARGO_PKG_VERSION")))
                 .comments(Some(
                     "Desktop wrapper around the DeepSeek Harness web application. \
