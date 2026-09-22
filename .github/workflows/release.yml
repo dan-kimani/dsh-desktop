@@ -163,11 +163,32 @@ jobs:
         # `.icns` is a macOS-only format; the script is a no-op elsewhere.
         run: node scripts/make-icns.mjs
 
+      - name: Detach stale disk images
+        # `bundle_dmg.sh` mounts a staging volume; a leftover from an earlier run
+        # makes the next `hdiutil attach` fail. Cheap insurance on macOS.
+        if: runner.os == 'macOS'
+        run: |
+          for vol in /Volumes/dsh-desktop*; do
+            [ -e "$vol" ] || continue
+            echo "detaching $vol"
+            hdiutil detach "$vol" -force || true
+          done
+
       - name: Build the application
         # Bundle formats come from the matrix. AppImage is deliberately absent: it
         # needs FUSE via `linuxdeploy`, which could not be verified here, so it is
         # opt-in (add it to the linux rows) rather than a release risk.
-        run: node scripts/build.mjs --bundles "${{ matrix.bundles }}"
+        #
+        # macOS goes through a wrapper: `bundle_dmg.sh` fails transiently on hosted
+        # runners and reports nothing when it does. That wrapper retries and, on
+        # final failure, prints what was actually mounted.
+        run: |
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            node scripts/build-macos.mjs "${{ matrix.bundles }}" --product-name dsh-desktop
+          else
+            node scripts/build.mjs --bundles "${{ matrix.bundles }}"
+          fi
+        shell: bash
 
       - name: Upload installers
         uses: actions/upload-artifact@v4

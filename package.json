@@ -18,7 +18,7 @@
     "build:rpm": "node scripts/build.mjs --bundles rpm",
     "build:linux": "node scripts/build.mjs --bundles deb,rpm",
     "build:windows": "node scripts/build.mjs --bundles nsis",
-    "build:macos": "node scripts/build.mjs --bundles app,dmg",
+    "build:macos": "node scripts/build-macos.mjs --product-name dsh-desktop app,dmg",
     "icns": "node scripts/make-icns.mjs",
     "resolve-version": "node scripts/resolve-version.mjs",
     "release-notes": "node scripts/release-notes.mjs",
