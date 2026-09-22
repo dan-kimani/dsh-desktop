@@ -199,7 +199,12 @@ try {
   console.log('\n3. replay the exact webview auth handshake');
   const exchange = await fetch(url, { redirect: 'manual' });
   check('token exchange returns 303', exchange.status === 303, `status ${exchange.status}`);
-  check('redirects to clean "/"', exchange.headers.get('location') === '/', exchange.headers.get('location') ?? '');
+  // Compare the RESOLVED path, not the literal header: upstream may spell this
+  // `./` or `/`, and both land on the same document. Asserting the raw string
+  // would fail on a change that has no behavioural effect.
+  const location = exchange.headers.get('location');
+  const resolvedPath = location === null ? null : new URL(location, url).pathname;
+  check('redirects to the clean root path', resolvedPath === '/', `Location: ${location} -> ${resolvedPath}`);
 
   const setCookie = exchange.headers.getSetCookie?.() ?? [];
   const cookie = setCookie[0]?.split(';')[0] ?? null;

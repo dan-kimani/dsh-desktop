@@ -160,8 +160,9 @@ upstream dsh version, so a build is traceable to the release it repackaged.
   `busctl --user list | grep SingleInstance`.
 - **Icons are placeholders** — generic art, deliberately not DeepSeek's logo. Replace
   `src-tauri/icons/` before distributing.
-- **`latest` points at a release candidate**, so this wrapper tracks rc releases. Change
-  `npm.tag` in `config/runtime.json` to follow a different channel.
+- **The tracked channel is `alpha`.** Upstream's `latest` and `next` tags both currently point at
+  versions npm cannot install (`dsh-web-app` requires a `documentpreview` prerelease that was
+  never published), so `config/runtime.json` follows `alpha`. Change `npm.tag` to move channels.
 - **Upstream can break the wrapper.** The startup URL line and the auth handshake are internal
   contracts, not a stable API. The smoke test guards both; treat a failure there as "upstream
   changed", not "the wrapper broke".

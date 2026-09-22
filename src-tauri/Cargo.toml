@@ -1,6 +1,6 @@
 [package]
 name = "dsh-desktop"
-version = "0.1.5-rc.2"
+version = "0.1.7-alpha.1"
 description = "Tauri desktop wrapper around the DeepSeek Harness web application"
 authors = ["dsh-desktop contributors"]
 license = "MIT"
