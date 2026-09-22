@@ -153,6 +153,16 @@ upstream dsh version, so a build is traceable to the release it repackaged.
   page is not an option.
 - **A brief `401` flashes on startup**, because of that second navigation. `cookieSettleMs` in
   `config/runtime.json` bounds how long it shows.
+- **Pasting an image needs a Linux-only bridge.** WebKitGTK never places clipboard images into a
+  paste event's `DataTransfer` ([WebKit #168419](https://bugs.webkit.org/show_bug.cgi?id=168419)),
+  so the harness UI's paste handler — which reads `event.clipboardData.items` — ignores a pasted
+  screenshot. Chromium does expose them, which is why the same gesture works in `dsh web` and not
+  here. `src-tauri/src/clipboard.rs` closes the gap: an injected shim asks the host for the
+  clipboard image and re-dispatches a synthetic paste carrying a real `File`. Because the harness
+  is a loopback *remote* origin, `capabilities/default.json` grants `remote.urls` IPC access to
+  `http://127.0.0.1:*`, and the command itself refuses any request whose webview is not on a
+  loopback origin. macOS and Windows already deliver images through the paste event, so the
+  bridge is Linux-only.
 - **Force-killing the app orphans the runtime.** Closing the window stops the sidecar; `SIGKILL`
   leaves it running with its port and ~150 MB.
 - **The single-instance lock can exit silently.** On Linux it is a D-Bus name, and a stale
