@@ -20,7 +20,7 @@
  */
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -70,6 +70,10 @@ function parseArgs(argv) {
 
 const args = parseArgs(process.argv.slice(2));
 const CONFIG = JSON.parse(readFileSync(join(ROOT, 'config', 'runtime.json'), 'utf8'));
+// Resolve to an absolute path: the runtime is spawned with `cwd` set to a
+// temporary home, so a relative --runtime would be resolved against that instead
+// of the directory the caller typed it in.
+args.runtime = resolve(args.runtime);
 const BIN = join(args.runtime, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
 
 if (!existsSync(BIN)) throw new Error(`dsh entry not found at ${BIN} — run scripts/fetch-runtime.mjs first`);

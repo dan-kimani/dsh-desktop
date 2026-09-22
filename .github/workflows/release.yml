@@ -126,13 +126,6 @@ jobs:
           # otherwise let a new dsh payload ship with an old compiled runtime.
           key: dsh-${{ needs.detect.outputs.version }}
 
-      - name: Lint the Rust code
-        # Runs before the payload is assembled: it needs no runtime, and failing
-        # here is far cheaper than discovering the problem after a few minutes of
-        # fetching and trimming. `-D warnings` makes any lint fail the job.
-        working-directory: src-tauri
-        run: cargo clippy --all-targets -- -D warnings
-
       - name: Assemble the bundled runtime
         env:
           DSH_VERSION: ${{ needs.detect.outputs.version }}
@@ -149,6 +142,14 @@ jobs:
         env:
           # Bundled node is staged as a sidecar; use it so we test exactly what ships.
           DSH_SMOKE_USE_BUNDLED_NODE: "1"
+
+      - name: Lint the Rust code
+        # Must run after the payload is assembled: `tauri-build` resolves every
+        # entry in `bundle.externalBin` while running the build script, so no
+        # cargo command works in a fresh checkout until the sidecar exists.
+        # `-D warnings` makes any lint fail the job.
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D warnings
 
       - name: Stamp the application version
         # The wrapper mirrors upstream's version so a build is traceable back to
