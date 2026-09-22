@@ -26,7 +26,7 @@
  *   node scripts/trim-runtime.mjs --aggressive    # also drop optional integrations
  *   node scripts/trim-runtime.mjs --dry-run
  */
-import { readdirSync, statSync, rmSync, existsSync } from 'node:fs';
+import { readdirSync, statSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { join, extname, basename, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -248,8 +248,38 @@ function pruneMuslTwins() {
   drop(join(MODULES, '@deepseek-ai', 'node-addon-system-linux-x64', 'bin', 'musl'), 'musl twin on a glibc host');
 }
 
+/**
+ * Drop native packages that nothing in the shipped profile can reach.
+ *
+ * `sherpa-onnx-linux-x64` is a 32MB speech-recognition binary pulled in by
+ * `dsh-experimental-speech-to-text-sensevoice`. That plugin defines no row in the
+ * web profile's bundle patch, so the Cordis loader never instantiates it, and its
+ * `sherpa-onnx-node` import sits inside a worker function behind `createRequire`
+ * rather than at module scope — so removing the binary cannot break boot.
+ *
+ * INVARIANT: this holds only while the speech plugin is not a profile row. If
+ * upstream adds one, the loader imports the plugin and this must be removed too;
+ * the smoke test boots the real profile, so it would fail loudly rather than
+ * shipping a broken bundle.
+ */
+function pruneUnreachableNativePackages() {
+  const profilePatch = join(MODULES, '@deepseek-ai', 'dsh-web-app', 'cordis.patch.yml');
+  if (!existsSync(profilePatch)) {
+    // No bundle patch to consult: leave the payload untouched rather than guess.
+    return;
+  }
+  // Not wrapped in a catch: a read failure here is a bug in this script, and
+  // swallowing it would silently skip the prune (which is how this went unnoticed).
+  const patch = readFileSync(profilePatch, 'utf8');
+  if (/(sensevoice|speech-to-text)/i.test(patch)) return;
+
+  drop(join(MODULES, 'sherpa-onnx-linux-x64'), 'unreachable speech-recognition binary');
+  drop(join(MODULES, 'sherpa-onnx-node'), 'loader for the unreachable speech plugin');
+}
+
 pruneForeignPrebuilds();
 pruneMuslTwins();
+pruneUnreachableNativePackages();
 
 walk(MODULES);
 
