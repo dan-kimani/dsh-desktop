@@ -42,6 +42,10 @@ npm run smoke     # boot it and replay the auth handshake
 `DSH_SMOKE_USE_BUNDLED_NODE=1 npm run smoke` tests the staged binary that actually ships.
 All of these commands are idempotent.
 
+To pin an exact upstream release instead of following `npm.tag`, remember npm only forwards
+arguments after `--`: `npm run setup -- --version 0.1.7-rc.1`. Without the separator npm
+interprets `--version` itself, prints its own version and never runs the script.
+
 ## Running the dev environment
 
 ```bash
@@ -66,7 +70,7 @@ npm run build:no-bundle
 
 Rust, `config/runtime.json`, `ui/index.html` and `tauri.conf.json` changes only need `dev`
 again — except `config/runtime.json`, which is compiled in and needs a rebuild. A new upstream
-release means re-running the three setup scripts.
+release means re-running `npm run setup`, or building with `npm run build --latest`.
 
 ## Building for distribution
 
@@ -83,6 +87,13 @@ through `npx`, so nothing needs installing first.
 | `npm run build:macos`     | `.app` + `.dmg`                             |
 | `npm run build:no-bundle` | the executable only                         |
 
+Add `--latest` on its own or after `--` — npm only forwards arguments that follow `--`, and
+the wrapper reads `npm_config_latest` so the bare form works too:
+
+```bash
+npm run build --latest          # also accepted: npm run build -- --latest
+```
+
 Each target needs its own OS — the payload is platform-specific, so `build:windows` on Linux
 will not produce a Windows installer. For anything not covered above, call the wrapper directly
 and pass extra arguments through:
@@ -94,21 +105,72 @@ node scripts/build.mjs --bundles deb,rpm
 Call the wrapper rather than the Tauri CLI directly: it resolves the CLI for you and gives CI
 and the npm scripts one command surface.
 
+**`build` bundles the payload already on disk — it does not check npm.** The bundler never
+resolves the runtime itself, so after upstream publishes you must re-assemble first, or pass
+`--latest` to do both in one step:
+
+```bash
+npm run build --latest           # re-assemble the published release, then bundle
+```
+
+`--latest` runs the same sequence as `npm run setup` and then stamps the version into
+`tauri.conf.json` and `Cargo.toml`, so artifact names match the payload they contain. Without
+it, a build after a new upstream release silently ships the previous runtime under the previous
+version. `build:macos` accepts `--latest` too.
+
+Because `--latest` records the version it built, it edits the tracked `.dsh-version` marker and
+the generated `tauri.conf.json`/`Cargo.toml` versions. That is deliberate — CI commits the
+marker the same way — but it leaves the tree dirty, so decide per build whether to keep or
+revert it.
+
 Artifacts land in `src-tauri/target/release/bundle/`:
 
 Every installer name carries the version, taken from `version` in `tauri.conf.json`.
 
-| Target           | Path                                                          |
-| ---------------- | ------------------------------------------------------------- |
-| Executable       | `src-tauri/target/release/dsh-desktop` (`.exe` on Windows)     |
-| Debian           | `bundle/deb/dsh-desktop_<version>_amd64.deb`                   |
-| RPM              | `bundle/rpm/dsh-desktop-<version>-1.x86_64.rpm`                |
-| NSIS             | `bundle/nsis/dsh-desktop_<version>_<arch>-setup.exe`           |
-| macOS app        | `bundle/macos/dsh-desktop.app`                                 |
-| macOS disk image | `bundle/dmg/dsh-desktop_<version>_<arch>.dmg`                  |
+| Target           | Path                                                              |
+| ---------------- | ----------------------------------------------------------------- |
+| Executable       | `src-tauri/target/release/dsh-desktop` (`.exe` on Windows)         |
+| Debian           | `bundle/deb/DeepSeek Harness_<version>_amd64.deb`                  |
+| RPM              | `bundle/rpm/DeepSeek Harness-<version>-1.x86_64.rpm`               |
+| NSIS             | `bundle/nsis/DeepSeek Harness_<version>_<arch>-setup.exe`          |
+| macOS app        | `bundle/macos/DeepSeek Harness.app`                                |
+| macOS disk image | `bundle/dmg/DeepSeek Harness_<version>_<arch>.dmg`                 |
 
-Measured on Linux x64: 76 MB `.deb`. The NSIS architecture token is `x64` or `arm64`, so do
-not hardcode it.
+Measured on Linux x64: 135 MB `.deb`. Most of that is upstream's LibreOffice WASM PDF engine.
+The NSIS architecture token is `x64` or `arm64`, so do not hardcode it.
+
+### Naming
+
+**The app is `DeepSeek Harness` everywhere the operating system shows a name.** `productName`
+in `tauri.conf.json` is the single source of truth: it titles the window, names the Debian and
+RPM packages, the installers, the macOS `.app`, the GNOME/KDE desktop entry and the Windows
+Start Menu shortcut and Apps-list entry. Nothing hardcodes it — the About dialog reads
+`app.package_info().name` and the Linux entry templates it in as `Name={{name}}`.
+
+The executable is the deliberate exception. `mainBinaryName` is `dsh-desktop`, so the packaged
+binary, the sidecar lookup, `src-tauri/target/release/dsh-desktop`, and everything in `scripts/`
+keep the name the project has always used. Only the labels change.
+
+The renamed product name has a space in it. Two things follow:
+
+- Linux installs resources to `/usr/lib/DeepSeek Harness` and writes
+  `usr/share/applications/DeepSeek Harness.desktop`.
+  `resource_dir()` resolves from `productName`, so the two agree; paths are passed to the Node
+  sidecar as argv entries rather than through a shell, so nothing needs quoting.
+- `bundle.linux.*.desktopTemplate` points at `src-tauri/linux/deepseek-harness.desktop`. It is a
+  copy of Tauri's default entry whose only addition is the `Keywords` list, which keeps `dsh`
+  and `dsh-desktop` findable in the launcher now that neither is the display name. `Exec`,
+  `StartupWMClass` and `Icon` stay templated to the main binary.
+
+**Upgrading from a `dsh-desktop` build is not automatic.** Tauri derives the Debian and RPM
+package name by kebab-casing `productName`, which splits the camel case, so the package is now
+`deep-seek-harness` (the installer files keep the name verbatim, spaces and all). Both packages
+own `/usr/bin/dsh-desktop` and the `apps/dsh-desktop.png` icons, so remove the old one first:
+
+```bash
+sudo apt remove dsh-desktop
+sudo apt install ./DeepSeek\ Harness_<version>_amd64.deb
+```
 
 ### Releases
 
@@ -165,11 +227,14 @@ upstream dsh version, so a build is traceable to the release it repackaged.
   so the harness UI's paste handler — which reads `event.clipboardData.items` — ignores a pasted
   screenshot. Chromium does expose them, which is why the same gesture works in `dsh web` and not
   here. `src-tauri/src/clipboard.rs` closes the gap: an injected shim asks the host for the
-  clipboard image and re-dispatches a synthetic paste carrying a real `File`. Because the harness
-  is a loopback *remote* origin, `capabilities/default.json` grants `remote.urls` IPC access to
-  `http://127.0.0.1:*`, and the command itself refuses any request whose webview is not on a
-  loopback origin. macOS and Windows already deliver images through the paste event, so the
-  bridge is Linux-only.
+  clipboard image and re-dispatches a synthetic paste carrying a real `File` on the focused
+  editor, because the harness editor listens on its contenteditable root rather than on
+  `document`. Because the harness is a loopback *remote* origin, `capabilities/harness.json`
+  grants `remote.urls` IPC access to `http://127.0.0.1:*`, and the command itself refuses any
+  request whose webview is not on a loopback origin. macOS and Windows already deliver images
+  through the paste event, so the bridge is Linux-only. The shim is only a string compiled into
+  the binary, so `npm run test:clipboard` runs it against a stub DOM and asserts the two things
+  that must be right for a paste to land: the IPC command name and the dispatch target.
 - **Force-killing the app orphans the runtime.** Closing the window stops the sidecar; `SIGKILL`
   leaves it running with its port and ~150 MB.
 - **The single-instance lock can exit silently.** On Linux it is a D-Bus name, and a stale
@@ -177,9 +242,10 @@ upstream dsh version, so a build is traceable to the release it repackaged.
   `busctl --user list | grep SingleInstance`.
 - **Icons are placeholders** — generic art, deliberately not DeepSeek's logo. Replace
   `src-tauri/icons/` before distributing.
-- **The tracked channel is `alpha`.** Upstream's `latest` and `next` tags both currently point at
-  versions npm cannot install (`dsh-web-app` requires a `documentpreview` prerelease that was
-  never published), so `config/runtime.json` follows `alpha`. Change `npm.tag` to move channels.
+- **The tracked channel is `next`.** Upstream keeps prereleases off `latest` (still
+  `0.1.5-rc.3`), and `alpha` has stalled at `0.1.7-alpha.2`, so `config/runtime.json` follows
+  `next` (`0.1.7-rc.1`). Change `npm.tag` to move channels; `resolve-version.mjs` prints every
+  dist-tag so a channel that stops moving is visible.
 - **Upstream can break the wrapper.** The startup URL line and the auth handshake are internal
   contracts, not a stable API. The smoke test guards both; treat a failure there as "upstream
   changed", not "the wrapper broke".

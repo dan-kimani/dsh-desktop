@@ -101,6 +101,11 @@ jobs:
         with:
           node-version: 24
 
+      - name: Test the clipboard bridge
+        # The shim is a JavaScript string compiled into the Linux binary; nothing else
+        # executes it, so a wrong command name or dispatch target would ship unnoticed.
+        run: node scripts/test-clipboard-shim.mjs
+
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
         run: |
@@ -165,14 +170,16 @@ jobs:
 
       - name: Detach stale disk images
         # `bundle_dmg.sh` mounts a staging volume; a leftover from an earlier run
-        # makes the next `hdiutil attach` fail. Cheap insurance on macOS.
+        # makes the next `hdiutil attach` fail. Cheap insurance on macOS. The volume
+        # is named after productName, which now contains a space, so iterate with
+        # `find -print0` instead of an unquoted glob that would split on it.
         if: runner.os == 'macOS'
         run: |
-          for vol in /Volumes/dsh-desktop*; do
-            [ -e "$vol" ] || continue
-            echo "detaching $vol"
-            hdiutil detach "$vol" -force || true
-          done
+          find /Volumes -maxdepth 1 -name 'DeepSeek Harness*' -print0 |
+            while IFS= read -r -d '' vol; do
+              echo "detaching $vol"
+              hdiutil detach "$vol" -force || true
+            done
 
       - name: Build the application
         # Bundle formats come from the matrix. AppImage is deliberately absent: it
@@ -184,7 +191,7 @@ jobs:
         # final failure, prints what was actually mounted.
         run: |
           if [ "${{ runner.os }}" = "macOS" ]; then
-            node scripts/build-macos.mjs "${{ matrix.bundles }}" --product-name dsh-desktop
+            node scripts/build-macos.mjs "${{ matrix.bundles }}"
           else
             node scripts/build.mjs --bundles "${{ matrix.bundles }}"
           fi

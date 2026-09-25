@@ -1,7 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "dsh-desktop",
-  "version": "0.1.7-alpha.1",
+  "productName": "DeepSeek Harness",
+  "mainBinaryName": "dsh-desktop",
+  "version": "0.1.7-rc.2",
   "identifier": "ai.deepseek.harness.desktop",
   "build": {
     "frontendDist": "../ui"
@@ -61,10 +62,14 @@
     },
     "linux": {
       "deb": {
+        "desktopTemplate": "linux/deepseek-harness.desktop",
         "depends": [
           "libwebkit2gtk-4.1-0",
           "libgtk-3-0"
         ]
+      },
+      "rpm": {
+        "desktopTemplate": "linux/deepseek-harness.desktop"
       }
     },
     "windows": {

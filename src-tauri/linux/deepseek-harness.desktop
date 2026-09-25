@@ -1,0 +1,21 @@
+{{! Desktop entry for the Linux bundles (deb and rpm).
+    `productName` is the app's user-visible name, so the Name field comes straight from it and
+    cannot drift. This template exists for what Tauri's default entry cannot express: the
+    Keywords list keeps the project's `dsh` / `dsh-desktop` names findable, and the explicit
+    entries below record that Exec, StartupWMClass and Icon follow the main binary
+    (`mainBinaryName`, which stays `dsh-desktop`) rather than the product name. }}
+[Desktop Entry]
+Categories={{categories}}
+{{#if comment}}
+Comment={{comment}}
+{{/if}}
+Exec={{exec}}
+StartupWMClass={{exec}}
+Icon={{icon}}
+Name={{name}}
+Keywords=dsh;dsh-desktop;deepseek;harness;
+Terminal=false
+Type=Application
+{{#if mime_type}}
+MimeType={{mime_type}}
+{{/if}}

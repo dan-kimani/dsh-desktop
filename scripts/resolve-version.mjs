@@ -107,15 +107,25 @@ const args = parseArgs(process.argv.slice(2));
 const config = loadConfig();
 
 const previous = existsSync(MARKER) ? readFileSync(MARKER, 'utf8').trim() : '0.0.0';
-const { version } = args.force !== undefined
-  ? { version: args.force }
+const resolved = args.force !== undefined
+  ? { version: args.force, allTags: undefined }
   : await resolvePublished(config.npm.package, config.npm.tag);
+const { version } = resolved;
 
 const tauriVersion = toTauriVersion(version);
 const updated = version !== previous;
 
 console.log(`package:        ${config.npm.package}`);
 console.log(`configured tag: ${config.npm.tag}`);
+// Printing every tag is what makes a stalled channel obvious: `alpha` can sit still while a
+// newer release lands on `next`, and without this the only symptom is "updated: false".
+if (resolved.allTags) {
+  console.log(
+    `dist-tags:      ${Object.entries(resolved.allTags)
+      .map(([tag, tagged]) => `${tag}=${tagged}`)
+      .join('  ')}`,
+  );
+}
 console.log(`previous:       ${previous}`);
 console.log(`resolved:       ${version}`);
 console.log(`tauri version:  ${tauriVersion}`);

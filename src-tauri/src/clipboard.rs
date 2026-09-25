@@ -11,6 +11,10 @@
 //! re-dispatches a synthetic paste event carrying a real `File`. Upstream's
 //! handler then runs on its normal path.
 //!
+//! The re-dispatch has to target the element that had focus. The harness editor
+//! (Lexical) attaches its `paste` listener to the contenteditable root, so an
+//! event dispatched on `document` never reaches it.
+//!
 //! The bridge is deliberately Linux-only — macOS and Windows already deliver
 //! images through the paste event, so shipping the shim there would mean
 //! invoking a command that is not compiled in. On those targets [`SHIM_JS`] is
@@ -48,36 +52,80 @@ pub const SHIM_JS: &str = r#"(function () {
     return Promise.resolve(new File([bytes], name, { type: meta || "image/png" }));
   }
 
+  // The harness editor (Lexical) attaches its paste listener to the contenteditable root,
+  // not to `document`, so the synthetic event must be dispatched on the element that had
+  // focus; a descendant plus `bubbles` still reaches the root.
+  function pasteTarget(event) {
+    var active = document.activeElement;
+    if (active && active !== document.body && active !== document.documentElement) return active;
+    if (event && event.target) return event.target;
+    return document.body;
+  }
+
+  function syntheticPaste(file) {
+    var transfer = new DataTransfer();
+    transfer.items.add(file);
+
+    var event = null;
+    try {
+      event = new ClipboardEvent("paste", {
+        clipboardData: transfer,
+        bubbles: true,
+        cancelable: true
+      });
+    } catch (error) {
+      event = null;
+    }
+    if (event === null) {
+      try {
+        event = new Event("paste", { bubbles: true, cancelable: true });
+      } catch (error) {
+        return null;
+      }
+    }
+
+    // WebKit has been known to drop the `clipboardData` init member. The harness reads the
+    // property directly, so shadow the prototype getter when the constructor lost it.
+    if (event.clipboardData !== transfer) {
+      try {
+        Object.defineProperty(event, "clipboardData", { value: transfer });
+      } catch (error) {
+        return null;
+      }
+    }
+    return event;
+  }
+
   // The harness reads pasted images from `event.clipboardData.items` only.
   // Text pastes and real file pastes already work, so act solely on the case
   // this platform drops: no file items, and no text to fall back to.
   function onPaste(event) {
     var data = event.clipboardData;
     if (!data) return;
-    for (var i = 0; i < data.items.length; i += 1) {
-      if (data.items[i].kind === "file") return;
+    var items = data.items || [];
+    for (var i = 0; i < items.length; i += 1) {
+      if (items[i].kind === "file") return;
     }
     if (data.getData("text/plain") !== "") return;
+
+    // Read the target now, while the editor still has focus, rather than after the
+    // clipboard round-trip.
+    var target = pasteTarget(event);
 
     // Capture phase plus this call keeps the (empty) paste from reaching the
     // editor, which would otherwise clear the draft.
     event.preventDefault();
     event.stopImmediatePropagation();
 
-    invoke("read-clipboard-image")
+    call("read_clipboard_image", {})
       .then(function (dataUrl) {
         if (typeof dataUrl !== "string" || dataUrl === "") return null;
         return fileFromDataUrl(dataUrl, "pasted-image.png");
       })
       .then(function (file) {
         if (file === null) return;
-        var transfer = new DataTransfer();
-        transfer.items.add(file);
-        document.dispatchEvent(new ClipboardEvent("paste", {
-          clipboardData: transfer,
-          bubbles: true,
-          cancelable: true
-        }));
+        var synthetic = syntheticPaste(file);
+        if (synthetic !== null) target.dispatchEvent(synthetic);
       })
       .catch(function (error) {
         // Losing a paste is worth one console line, not a broken input bar.
@@ -89,9 +137,10 @@ pub const SHIM_JS: &str = r#"(function () {
   }
 
   var attempts = 0;
+  var call = null;
 
   // Wry installs our script and Tauri's IPC bootstrap as separate user scripts,
-  // so `invoke` may not exist yet on the first tick. Poll briefly rather than
+  // so the bridge may not exist yet on the first tick. Poll briefly rather than
   // giving up permanently; a failure here would silently restore the bug.
   function install() {
     var bridge = window.__TAURI_INTERNALS__;
@@ -100,7 +149,10 @@ pub const SHIM_JS: &str = r#"(function () {
       if (attempts < 40) setTimeout(install, 50);
       return;
     }
-    invoke = function (command) { return bridge.invoke(command); };
+    // `read_clipboard_image` is the Rust command name: that is the string Tauri dispatches
+    // and the ACL allows. Invoking the slug in `allow-read-clipboard-image` fails with
+    // "command not found".
+    call = function (command, args) { return bridge.invoke(command, args); };
     document.addEventListener("paste", onPaste, true);
   }
 
@@ -129,9 +181,10 @@ fn is_loopback(url: &url::Url) -> bool {
 /// Read an image from the system clipboard, encoded as a PNG data URL.
 ///
 /// Returns `Ok(None)` when the clipboard holds no image, which the shim treats
-/// as "nothing to paste" rather than an error. The ACL identifier for this
-/// command is `allow-read-clipboard-image`: `tauri-build` slugifies the
-/// snake_case name, and the shim invokes that same slug.
+/// as "nothing to paste" rather than an error. The shim invokes the command by
+/// its Rust name, `read_clipboard_image`, which is the string Tauri dispatches;
+/// `allow-read-clipboard-image` is only the permission identifier `tauri-build`
+/// derives from it, and invoking that slug fails with "command not found".
 ///
 /// The command is registered and ACL-gated on every target so the handler table
 /// is uniform; off Linux it answers `Ok(None)` and [`SHIM_JS`] is empty, so

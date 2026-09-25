@@ -22,12 +22,16 @@
  * bundle on disk — this only decides whether the job is red.
  *
  * Usage:
- *   node scripts/build-macos.mjs app,dmg --product-name dsh-desktop
+ *   node scripts/build-macos.mjs app,dmg
+ *   node scripts/build-macos.mjs app,dmg --product-name "DeepSeek Harness"
+ *   node scripts/build-macos.mjs app,dmg --latest
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { assembleAndStamp, parseBuildArgs } from './setup.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const ATTEMPTS = 3;
@@ -44,7 +48,25 @@ function parseFlags(argv) {
 }
 
 const flags = parseFlags(process.argv.slice(2));
-const productName = flags.productName ?? 'dsh-desktop';
+// `--latest` is this wrapper's, not the Tauri CLI's, so it must not be forwarded.
+const { latest, rest } = parseBuildArgs(flags.rest);
+flags.rest = rest;
+if (latest) {
+  console.log('bundle: --latest, assembling the runtime before bundling');
+  assembleAndStamp();
+}
+
+/**
+ * The volume name must match the one `bundle_dmg.sh` mounts, so take `productName` from
+ * `tauri.conf.json` rather than repeating it here — a drift would silently stop the detach
+ * below from clearing the volume, which is the failure this wrapper exists to avoid.
+ */
+function configuredProductName() {
+  const conf = join(ROOT, 'src-tauri', 'tauri.conf.json');
+  return JSON.parse(readFileSync(conf, 'utf8')).productName ?? 'dsh-desktop';
+}
+
+const productName = flags.productName ?? configuredProductName();
 const volume = `/Volumes/${productName}`;
 
 /** Run a command, capturing output instead of inheriting it. */

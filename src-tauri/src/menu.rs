@@ -12,19 +12,19 @@ use tauri::{AppHandle, Manager};
 
 use crate::harness;
 
-/// The name shown to the user, which is deliberately not `productName`.
-///
-/// `productName` in `tauri.conf.json` names the installers and the Linux resource
-/// directory, and stays `dsh-desktop` so artifacts are identifiable. What the user
-/// sees is the product this wrapper presents, which is the harness itself.
-pub const APP_NAME: &str = "DeepSeek Harness";
-
 /// Menu item ids handled in [`on_menu_event`].
 pub const RELOAD: &str = "reload";
 pub const OPEN_IN_BROWSER: &str = "open_in_browser";
 
 /// Build and install the menu bar.
+///
+/// The name the user sees is `productName` from `tauri.conf.json`, read here through
+/// `package_info().name` so it is never duplicated as a string. The executable keeps its own
+/// name instead: `mainBinaryName` is `dsh-desktop`, which leaves the packaged binary and the
+/// scripts that invoke it untouched. Linux gets the same name through `productName` in its
+/// desktop entry; see `src-tauri/linux/deepseek-harness.desktop`.
 pub fn install(app: &AppHandle) -> tauri::Result<()> {
+    let app_name = app.package_info().name.clone();
     let reload = MenuItemBuilder::with_id(RELOAD, "Reload interface")
         .accelerator("CmdOrCtrl+R")
         .build(app)?;
@@ -59,10 +59,10 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
         MenuItemBuilder::with_id("upstream", "DeepSeek Harness on GitHub").build(app)?;
     let about = PredefinedMenuItem::about(
         app,
-        Some(&format!("About {APP_NAME}")),
+        Some(&format!("About {app_name}")),
         Some(
             AboutMetadataBuilder::new()
-                .name(Some(APP_NAME))
+                .name(Some(app_name.clone()))
                 .version(Some(env!("CARGO_PKG_VERSION")))
                 .comments(Some(
                     "Desktop wrapper around the DeepSeek Harness web application. \
