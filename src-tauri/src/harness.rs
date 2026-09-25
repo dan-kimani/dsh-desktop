@@ -4,7 +4,7 @@
 //!   1. locate the bundled runtime inside the installed resource directory
 //!   2. bootstrap the wrapper's own profile on first launch
 //!   3. spawn the Node sidecar and parse the `dsh web: <url>` stdout contract
-//!   4. navigate the webview to the authenticated URL
+//!   4. redeem the launcher's one-time token and load the authenticated URL
 //!   5. guarantee the child dies with the app
 //!
 //! The launch shape (profile name, port, flags, stdout pattern) comes from
@@ -16,9 +16,11 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use serde::Deserialize;
+use tauri::webview::{cookie::SameSite, Cookie};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// The shared runtime configuration, compiled in from the repo's config file.
 #[derive(Debug, Deserialize)]
@@ -51,10 +53,6 @@ pub struct StdoutConfig {
     pub url_pattern: String,
     #[serde(rename = "readyTimeoutMs")]
     pub ready_timeout_ms: u64,
-    /// Grace period for the webview to store the session cookie, which is also how
-    /// long the intermediate `401` document could be on screen.
-    #[serde(rename = "cookieSettleMs")]
-    pub cookie_settle_ms: u64,
 }
 
 /// Parsed from `config/runtime.json` at compile time.
@@ -312,52 +310,170 @@ fn url_regex() -> &'static regex_lite::Regex {
     })
 }
 
-/// Load the authenticated UI, working around a WebKitGTK cookie-timing quirk.
+/// Redeem the launcher's one-time token for the session cookie.
 ///
-/// The launcher's URL carries a one-time token that the server trades for an
-/// `HttpOnly` session cookie bound to the request authority, answering `303`.
-/// WebKitGTK **stores** that cookie when it follows the redirect itself, but does
-/// not **replay** it on the redirected request — so the document that renders is
-/// the raw `401` body. Resolving the token outside the webview does not help
-/// either: a Rust-side HTTP client has no access to WebKit's cookie store, so
-/// nothing is ever stored.
+/// The launcher prints `dsh web: http://127.0.0.1:PORT/?token=…`, and that URL
+/// answers `303` with the `HttpOnly` cookie the UI is served against. The token
+/// is a bearer credential good for exactly one exchange, so the wrapper redeems
+/// it itself and hands the cookie to the webview ([`install_session`]) *before*
+/// the one authenticated load ([`load_ui`]).
 ///
-/// So the webview performs the exchange, and then loads the UI. Verified against
-/// the running server:
+/// Letting the webview redeem it is what this replaced, and why:
+///
+/// * WebKitGTK stores the `Set-Cookie` when it follows the `303` itself, but does
+///   not replay it on the redirected request, so the webview renders the raw
+///   `401` body and needs a second navigation.
+/// * The jar commits that cookie late — measured still empty well after the
+///   `303`, and populated around the time the unauthenticated document finishes —
+///   so any fixed settle delay races it.
+/// * A navigation to the URL that is already loading is satisfied *without a
+///   network request at all*, so the `401` document stays on screen forever. That
+///   is the cold-start stall this wrapper shipped with, and the reason the
+///   page-load fast path alone did not cure it.
+///
+/// Redeeming the token out of band deletes all three races: the cookie is in the
+/// jar before the UI load is issued, and that load is a first navigation rather
+/// than a reload of the error document. Verified against the running server:
 ///
 /// | request             | response       |
 /// |---------------------|----------------|
 /// | `/?token=…`         | `303` + cookie |
 /// | `/` with the cookie | `200` + the UI |
+async fn redeem_token(tokenized: &url::Url) -> Result<String, String> {
+    if tokenized.scheme() != "http" {
+        return Err(format!(
+            "the launcher announced {tokenized}, but only plain-HTTP loopback is supported"
+        ));
+    }
+    let host = tokenized
+        .host_str()
+        .ok_or_else(|| format!("the launcher URL {tokenized} has no host"))?
+        .to_string();
+    let port = tokenized
+        .port_or_known_default()
+        .ok_or_else(|| format!("the launcher URL {tokenized} has no port"))?;
+    // The server derives the cookie name from the authority on the request, so
+    // this has to be spelled exactly as the webview will spell it when it loads
+    // the UI, or the cookie will not be recognised.
+    let authority = match tokenized.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host.clone(),
+    };
+
+    let mut stream = tokio::time::timeout(
+        Duration::from_secs(10),
+        tokio::net::TcpStream::connect((host.as_str(), port)),
+    )
+    .await
+    .map_err(|_| format!("connecting to {authority} timed out"))?
+    .map_err(|e| format!("could not connect to {authority}: {e}"))?;
+
+    // `Connection: close` lets the response be read to EOF, so the header block is
+    // all there is to parse; no response body framing has to be understood.
+    let target = request_target(tokenized);
+    let request = format!(
+        "GET {target} HTTP/1.1\r\nHost: {authority}\r\nAccept: */*\r\nConnection: close\r\n\r\n"
+    );
+    stream
+        .write_all(request.as_bytes())
+        .await
+        .map_err(|e| format!("could not send the token request: {e}"))?;
+
+    let mut response = Vec::new();
+    tokio::time::timeout(Duration::from_secs(10), stream.read_to_end(&mut response))
+        .await
+        .map_err(|_| "reading the token response timed out".to_string())?
+        .map_err(|e| format!("could not read the token response: {e}"))?;
+
+    session_cookie_from_response(&String::from_utf8_lossy(&response)).ok_or_else(|| {
+        format!(
+            "{authority} answered the token request without a usable session cookie; \
+             upstream may have changed the authentication handshake"
+        )
+    })
+}
+
+/// The request-line target for the token exchange: path plus query, and nothing
+/// else.
 ///
-/// The caller drains the runtime's stdout while the settle delay elapses, then
-/// calls [`navigate_clean`]. The exchange must be a navigation: a `no-cors`
-/// subresource request from the loading page does NOT store the cookie, because
-/// WebKitGTK refuses a `SameSite=Strict` cookie set by a cross-site request
-/// (verified: the jar stays empty and the UI loads unauthenticated).
+/// `Url::path` alone would silently drop the `?token=…`, which is the entire
+/// point of the request (and was a real regression: the exchange then answered
+/// `401` with no cookie). Pure so that cannot happen unnoticed again.
+fn request_target(tokenized: &url::Url) -> &str {
+    &tokenized[url::Position::BeforePath..url::Position::AfterQuery]
+}
+
+/// Pull the session cookie out of the token exchange's `Set-Cookie` header.
 ///
-/// @param app - application handle
-/// @param tokenized - the tokenized URL printed by the launcher
-/// @returns the clean origin to navigate to once the cookie has landed
-fn begin_session(app: &AppHandle, tokenized: &str) -> Result<String, String> {
-    let parsed: url::Url = tokenized
-        .parse()
-        .map_err(|e| format!("could not parse {tokenized}: {e}"))?;
+/// Pure over the raw response text so it can be unit-tested. The status line is
+/// checked as well: a `401` from a stale or already-redeemed token must not look
+/// like a successful exchange that merely forgot its cookie.
+fn session_cookie_from_response(response: &str) -> Option<String> {
+    let (head, _) = response.split_once("\r\n\r\n")?;
+    let mut lines = head.split("\r\n");
+    let status = lines.next()?.split_whitespace().nth(1)?;
+    if !status.starts_with('2') && !status.starts_with('3') {
+        return None;
+    }
+    lines
+        .filter_map(|line| line.split_once(':'))
+        .find(|(name, _)| name.eq_ignore_ascii_case("set-cookie"))
+        .map(|(_, value)| value.trim().to_string())
+}
+
+/// Install the redeemed cookie in the webview's own jar.
+///
+/// The server mints it host-only (no `Domain`), which wry passes through as an
+/// empty domain that libsoup will not match, so the launcher's host is bound
+/// explicitly.
+///
+/// The server also marks it `SameSite=Strict`, which is deliberately relaxed to
+/// `Lax` here. WebKitGTK will not *send* a `Strict` cookie on the first
+/// navigation out of the `tauri://localhost` loading page — it treats that as
+/// cross-site even though the navigation is top-level, and downgrading to `Lax`
+/// is the only way to get the cookie onto that request (measured: `Strict`
+/// answers `401`, `Lax` answers `200`, and a settle delay does not help).
+/// `SameSite` is a browser-side sending rule the server never sees, so `Lax`
+/// still authenticates; it also still blocks the cross-site subresource
+/// requests the original `Strict` was there to block.
+fn install_session(app: &AppHandle, tokenized: &url::Url, set_cookie: &str) -> Result<(), String> {
     let webview = app
         .get_webview_window(WINDOW_LABEL)
         .ok_or_else(|| "the application window is missing".to_string())?;
-
-    // Navigating is what stores the cookie; the redirect target is a 401 until the
-    // second navigation, which is why the loading page is held on screen for
-    // `cookieSettleMs` and the authenticated load follows.
+    let host = tokenized
+        .host_str()
+        .ok_or_else(|| format!("the launcher URL {tokenized} has no host"))?;
+    let mut cookie = Cookie::parse(set_cookie)
+        .map_err(|e| format!("the server sent a session cookie this app could not parse: {e}"))?
+        .into_owned();
+    cookie.set_domain(host.to_string());
+    cookie.set_same_site(SameSite::Lax);
+    if cookie.path().is_none() {
+        cookie.set_path("/");
+    }
     webview
-        .navigate(parsed.clone())
-        .map_err(|e| format!("the first navigation failed: {e}"))?;
-    Ok(parsed.origin().ascii_serialization())
+        .set_cookie(cookie)
+        .map_err(|e| format!("could not install the session cookie: {e}"))
 }
 
-/// Second load: now authenticated, and the URL the webview keeps.
-fn navigate_clean(app: &AppHandle, origin: &str) -> Result<(), String> {
+/// Redeem the token, install the cookie, and load the authenticated UI.
+///
+/// @param app - application handle
+/// @param tokenized - the tokenized URL printed by the launcher
+/// @returns the clean origin the webview is now showing
+async fn redeem_session(app: &AppHandle, tokenized: &str) -> Result<String, String> {
+    let parsed: url::Url = tokenized
+        .parse()
+        .map_err(|e| format!("could not parse {tokenized}: {e}"))?;
+    let set_cookie = redeem_token(&parsed).await?;
+    install_session(app, &parsed, &set_cookie)?;
+    let origin = parsed.origin().ascii_serialization();
+    load_ui(app, &origin)?;
+    Ok(origin)
+}
+
+/// Load the authenticated UI: the URL the webview keeps.
+fn load_ui(app: &AppHandle, origin: &str) -> Result<(), String> {
     let window = app
         .get_webview_window(WINDOW_LABEL)
         .ok_or_else(|| "the application window is missing".to_string())?;
@@ -490,11 +606,6 @@ pub async fn start(app: AppHandle) {
     let mut stderr_tail = String::new();
     let mut navigated = false;
     let mut exited = false;
-    // Set once the token URL has been handed to the loading page; the origin is
-    // needed for the authenticated navigation, `exchange_timer` paces it.
-    let mut clean_origin: Option<String> = None;
-    // Fires for the authenticated load, once the cookie has had time to land.
-    let mut exchange_timer: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
 
     loop {
         let event = tokio::select! {
@@ -515,27 +626,6 @@ pub async fn start(app: AppHandle) {
                 );
                 shutdown(&app);
                 None
-            }
-            // Phase two: the cookie has had its moment, so load the UI.
-            () = async {
-                match exchange_timer.as_mut() {
-                    Some(deadline) => deadline.as_mut().await,
-                    // Never resolve while there is no second phase pending.
-                    None => std::future::pending().await,
-                }
-            }, if clean_origin.is_some() => {
-                exchange_timer = None;
-                let origin = clean_origin.take().expect("guarded by is_some");
-                navigated = true;
-                match navigate_clean(&app, &origin) {
-                    Ok(()) => eprintln!("dsh-desktop: UI loaded from {origin}"),
-                    Err(detail) => report_failure(
-                        &app,
-                        "Could not open the harness interface.",
-                        detail,
-                    ),
-                }
-                continue;
             }
         };
         let Some(event) = event else { break };
@@ -560,23 +650,20 @@ pub async fn start(app: AppHandle) {
                         let url = url.as_str().to_string();
                         eprintln!("dsh-desktop: loading the authenticated UI from {url}");
                         emit_log(&app, "loading the harness interface");
-                        // Phase one: hand the token URL to the loading page, which
-                        // requests it so WebKitGTK stores the session cookie.
-                        match begin_session(&app, &url) {
-                            Ok(origin) => {
-                                exchange_timer = Some(Box::pin(tokio::time::sleep(
-                                    Duration::from_millis(config.stdout.cookie_settle_ms),
-                                )));
-                                clean_origin = Some(origin);
-                            }
-                            Err(detail) => {
-                                navigated = true;
-                                report_failure(
-                                    &app,
-                                    "Could not open the harness interface.",
-                                    detail,
-                                );
-                            }
+                        // Readiness is committed once the URL is printed, so the
+                        // deadline no longer applies and a later exit is a crash
+                        // rather than a failed start.
+                        navigated = true;
+                        // One navigation, authenticated up front. See
+                        // `redeem_token` for why the webview cannot redeem the
+                        // token itself.
+                        match redeem_session(&app, &url).await {
+                            Ok(origin) => eprintln!("dsh-desktop: UI loaded from {origin}"),
+                            Err(detail) => report_failure(
+                                &app,
+                                "Could not open the harness interface.",
+                                detail,
+                            ),
                         }
                     }
                 }
@@ -686,5 +773,49 @@ mod tests {
             bundled_dsh_version(r#"{"dependencies":{"@deepseek-ai/dsh":42}}"#),
             None
         );
+    }
+
+    #[test]
+    fn request_target_keeps_the_token_query() {
+        let url: url::Url = "http://127.0.0.1:4123/?token=abc".parse().unwrap();
+        assert_eq!(request_target(&url), "/?token=abc");
+        // A fragment is never sent on the request line.
+        let fragmented: url::Url = "http://127.0.0.1:4123/?token=abc#x".parse().unwrap();
+        assert_eq!(request_target(&fragmented), "/?token=abc");
+    }
+
+    #[test]
+    fn reads_the_session_cookie_from_the_token_response() {
+        let response = "HTTP/1.1 303 See Other\r\n\
+                        location: ./\r\n\
+                        cache-control: no-store\r\n\
+                        set-cookie: dsh-auth-abc=xyz; Max-Age=2592000; Path=/; HttpOnly; SameSite=Strict\r\n\
+                        \r\n";
+        assert_eq!(
+            session_cookie_from_response(response).as_deref(),
+            Some("dsh-auth-abc=xyz; Max-Age=2592000; Path=/; HttpOnly; SameSite=Strict")
+        );
+    }
+
+    #[test]
+    fn header_names_are_matched_case_insensitively() {
+        let response = "HTTP/1.1 200 OK\r\nSet-Cookie: a=b\r\n\r\n";
+        assert_eq!(session_cookie_from_response(response).as_deref(), Some("a=b"));
+    }
+
+    #[test]
+    fn refuses_an_error_response() {
+        // A stale or already-redeemed token answers 401; that must not be read as
+        // a successful exchange, even if a cookie header were present.
+        let response = "HTTP/1.1 401 Unauthorized\r\ncache-control: no-store\r\n\
+                        set-cookie: stale=1\r\n\r\n";
+        assert_eq!(session_cookie_from_response(response), None);
+    }
+
+    #[test]
+    fn refuses_a_success_without_a_cookie() {
+        let response = "HTTP/1.1 200 OK\r\ncontent-type: text/html\r\n\r\n";
+        assert_eq!(session_cookie_from_response(response), None);
+        assert_eq!(session_cookie_from_response("not http at all"), None);
     }
 }

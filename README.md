@@ -147,12 +147,19 @@ upstream dsh version, so a build is traceable to the release it repackaged.
   window-manager problem rather than a missing capability. Run with `DSH_DESKTOP_DIAG=1` to
   print those flags.
 - **The harness page cannot be wrapped.** It must be the top-level document: a shell page on
-  `tauri://localhost` cannot set the harness cookie on `http://127.0.0.1`, because WebKitGTK
-  treats that as cross-site and refuses a `SameSite=Strict` cookie from either an iframe or a
-  subresource request. That is why the shell navigates twice, and why a custom-title-bar shell
-  page is not an option.
-- **A brief `401` flashes on startup**, because of that second navigation. `cookieSettleMs` in
-  `config/runtime.json` bounds how long it shows.
+  `tauri://localhost` cannot hold the harness UI, because WebKitGTK treats the loopback origin
+  as cross-site and will not send a `SameSite=Strict` cookie from an iframe or subresource
+  request. A custom-title-bar shell page is therefore not an option.
+- **The session cookie is installed host-side, not by the webview.** The wrapper redeems the
+  launcher's `/?token=…` URL itself and injects the resulting cookie into the webview's jar
+  before the single authenticated load, so no `401` body is ever rendered. The injected cookie
+  is `SameSite=Lax` rather than the server's `Strict`: WebKitGTK will not send a `Strict` cookie
+  on the first navigation out of the `tauri://localhost` loading page, while `Lax` is still sent
+  on that top-level request and still blocks cross-site subresource sends. Letting the webview
+  redeem the token itself does not work either: WebKitGTK does not replay the cookie on the
+  `303`'s redirected request, the jar commits it too late for a fixed settle delay, and a
+  navigation issued while that first load is still in flight never reaches the network at all —
+  which is what left the app stuck on the `401` document.
 - **Pasting an image needs a Linux-only bridge.** WebKitGTK never places clipboard images into a
   paste event's `DataTransfer` ([WebKit #168419](https://bugs.webkit.org/show_bug.cgi?id=168419)),
   so the harness UI's paste handler — which reads `event.clipboardData.items` — ignores a pasted

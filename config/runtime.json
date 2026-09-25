@@ -25,9 +25,7 @@
   },
   "stdout": {
     "urlPattern": "dsh web:\\s+(https?://\\S+)",
-    "$urlPatternComment": "The launcher prints `dsh web: http://127.0.0.1:PORT/?token=...`. The token is a one-time exchange credential for the cookie, not a session token.",
-    "readyTimeoutMs": 120000,
-    "cookieSettleMs": 150,
-    "$cookieSettleMsComment": "Grace period for the webview to store the session cookie after following the launcher's 303, before the authenticated navigation is issued. The 401 document that redirect targets is on screen for this long, so this is also the visible authentication flash. Measured against the running server the redirect completes in 10-20ms; this is margin, not a wait for work. Raise it if a slow machine ever loads the UI unauthenticated."
+    "$urlPatternComment": "The launcher prints `dsh web: http://127.0.0.1:PORT/?token=...`. The wrapper redeems that token itself, installs the session cookie in the webview, and loads the clean origin once: see `redeem_token` in src-tauri/src/harness.rs.",
+    "readyTimeoutMs": 120000
   }
 }
