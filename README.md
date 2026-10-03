@@ -43,7 +43,7 @@ npm run smoke     # boot it and replay the auth handshake
 All of these commands are idempotent.
 
 To pin an exact upstream release instead of following `npm.tag`, remember npm only forwards
-arguments after `--`: `npm run setup -- --version 0.1.7-rc.1`. Without the separator npm
+arguments after `--`: `npm run setup -- --version 0.2.1-alpha.1`. Without the separator npm
 interprets `--version` itself, prints its own version and never runs the script.
 
 ## Running the dev environment
@@ -174,11 +174,12 @@ sudo apt install ./DeepSeek\ Harness_<version>_amd64.deb
 
 ### Releases
 
-`.github/workflows/release.yml` runs daily and on demand. It resolves the version from the
-npm dist-tag in `config/runtime.json` and compares it to the committed `.dsh-version`; if
-unchanged it does nothing. Otherwise it builds on `ubuntu-22.04`, `windows-latest`, `macos-15`
-and `macos-15-intel`, publishes `dsh-desktop-v<version>` with the installers attached and release notes
-listing the commits since the previous tag, then commits the new marker.
+`.github/workflows/release.yml` runs daily and on demand. It resolves the newest upstream
+release from the npm dist-tags named in `config/runtime.json` (`npm.tag: newest`) and compares
+it to the committed `.dsh-version`; if unchanged it does nothing. Otherwise it builds on
+`ubuntu-22.04`, `windows-latest`, `macos-15` and `macos-15-intel`, publishes `dsh-desktop-v<version>`
+with the installers attached and release notes listing the commits since the previous tag, then
+commits the new marker.
 
 Linux uses 22.04 only, for its lower glibc: a binary built there also runs on newer
 distributions, which is not true in reverse. The payload's own native addons need at most
@@ -242,10 +243,12 @@ upstream dsh version, so a build is traceable to the release it repackaged.
   `busctl --user list | grep SingleInstance`.
 - **Icons are placeholders** — generic art, deliberately not DeepSeek's logo. Replace
   `src-tauri/icons/` before distributing.
-- **The tracked channel is `next`.** Upstream keeps prereleases off `latest` (still
-  `0.1.5-rc.3`), and `alpha` has stalled at `0.1.7-alpha.2`, so `config/runtime.json` follows
-  `next` (`0.1.7-rc.1`). Change `npm.tag` to move channels; `resolve-version.mjs` prints every
-  dist-tag so a channel that stops moving is visible.
+- **The tracked channel is `newest`.** Upstream's dist-tags leapfrog: `next` and `latest` sat on
+  `0.2.0-rc.2` while `alpha` moved to `0.2.1-alpha.1`, so following any single tag strands the
+  wrapper on an older build. `config/runtime.json` therefore sets `npm.tag: newest`, which picks
+  the highest published version across every tag; set a concrete tag (`alpha`, `next`, `latest`)
+  to pin a channel instead. `resolve-version.mjs` prints every dist-tag and the one it resolved
+  from, and `scripts/test-version-resolve.mjs` guards the semver ordering this depends on.
 - **Upstream can break the wrapper.** The startup URL line and the auth handshake are internal
   contracts, not a stable API. The smoke test guards both; treat a failure there as "upstream
   changed", not "the wrapper broke".

@@ -2,8 +2,8 @@
   "$comment": "Single source of truth for the bundled runtime. Consumed by scripts/fetch-runtime.mjs, scripts/resolve-version.mjs and src-tauri/src/harness.rs. Change the exec/flags here, not in Rust.",
   "npm": {
     "package": "@deepseek-ai/dsh",
-    "tag": "next",
-    "$tagComment": "Upstream keeps prereleases off `latest` (stuck on 0.1.5-rc.3), so this tracks `next`, the newest release candidate (0.1.7-rc.1). Use `alpha` to trail it, or pin an exact version with `setup.mjs --version`."
+    "tag": "newest",
+    "$tagComment": "Which npm dist-tag to follow. A concrete tag (`alpha`, `next`, `latest`) pins that channel; `newest` picks the highest published version across all of them. The channels leapfrog — `next`/`latest` sat on 0.2.0-rc.2 while `alpha` moved to 0.2.1-alpha.1 — so tracking one tag strands the wrapper on an older build. Pin an exact version with `setup.mjs --version`."
   },
   "node": {
     "major": 24,

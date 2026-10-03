@@ -12,7 +12,7 @@
  * The Node binary is platform-specific for the same reason.
  *
  * Usage:
- *   node scripts/fetch-runtime.mjs                       # tag from config/runtime.json
+ *   node scripts/fetch-runtime.mjs                       # tag from config/runtime.json (`newest` = highest across tags)
  *   node scripts/fetch-runtime.mjs --version 0.1.5-rc.2
  *   node scripts/fetch-runtime.mjs --node-version 24.21.0
  *   node scripts/fetch-runtime.mjs --no-node             # dsh tree only
@@ -24,6 +24,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { getJson, getRaw } from './fetch-json.mjs';
+import { resolveDshVersion } from './lib/dsh-version.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CONFIG = JSON.parse(readFileSync(join(ROOT, 'config', 'runtime.json'), 'utf8'));
@@ -108,16 +109,6 @@ async function resolveNodeVersion(major, indexKey, nodeArch) {
     throw new Error(`no Node ${major}.x LTS release provides ${indexKey} (${nodeArch})`);
   }
   return candidates[0]; // index.json is ordered newest-first
-}
-
-/** Resolve the version to install, from config or an explicit override. */
-async function resolveDshVersion(explicit) {
-  if (explicit) return explicit;
-  const pkg = CONFIG.npm.package.replace('/', '%2f');
-  const tags = (await getJson(`https://registry.npmjs.org/${pkg}`, { registry: true }))['dist-tags'] ?? {};
-  const version = tags[CONFIG.npm.tag];
-  if (!version) throw new Error(`npm has no dist-tag ${JSON.stringify(CONFIG.npm.tag)} for ${CONFIG.npm.package}`);
-  return version;
 }
 
 /**
@@ -236,7 +227,10 @@ function parseArgs(argv) {
 
 const args = parseArgs(process.argv.slice(2));
 const target = hostTriple();
-const version = await resolveDshVersion(args.version);
+// `--version` pins an exact release; otherwise follow config/runtime.json, where
+// `newest` resolves the highest published version across every npm dist-tag.
+const version =
+  args.version ?? (await resolveDshVersion(CONFIG.npm.package, CONFIG.npm.tag)).version;
 
 console.log(`host triple: ${target.rustTriple}`);
 console.log(`installing ${CONFIG.npm.package}@${version}`);

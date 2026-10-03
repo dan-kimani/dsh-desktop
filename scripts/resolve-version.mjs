@@ -4,7 +4,11 @@
  *
  * Upstream ships NO GitHub release assets (all 18 releases are tag-only), so the
  * npm registry is the only machine-readable release signal. This script therefore
- * resolves the desired version from the npm dist-tag rather than from a git tag.
+ * resolves the desired version from the npm dist-tags rather than from a git tag.
+ *
+ * `config/runtime.json` names the tag to follow: a concrete one (`alpha`, `next`,
+ * `latest`) pins that channel, while `newest` picks the highest published version
+ * across all of them. See `lib/dsh-version.mjs` for why `newest` is the default.
  *
  * It is the gate for the whole release pipeline:
  *   - resolves the target version from config/runtime.json `npm`
@@ -24,7 +28,7 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync } from 'node:fs
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { getJson } from './fetch-json.mjs';
+import { isSemver, resolveDshVersion } from './lib/dsh-version.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CONFIG = join(ROOT, 'config', 'runtime.json');
@@ -33,11 +37,6 @@ const MARKER = join(ROOT, '.dsh-version');
 /** Read and parse the shared runtime config (tolerating the $comment keys). */
 function loadConfig() {
   return JSON.parse(readFileSync(CONFIG, 'utf8'));
-}
-
-/** True when a string is valid semver, which is what tauri.conf.json requires. */
-function isSemver(value) {
-  return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(value);
 }
 
 /**
@@ -70,20 +69,6 @@ function toTauriVersion(version) {
   return version;
 }
 
-/** Resolve the published version for a dist-tag, or an exact version. */
-async function resolvePublished(pkg, tag) {
-  const url = `https://registry.npmjs.org/${pkg.replace('/', '%2f')}`;
-  const body = await getJson(url, { registry: true });
-  const tags = body['dist-tags'] ?? {};
-  const version = tags[tag];
-  if (version === undefined) {
-    throw new Error(
-      `npm has no dist-tag ${JSON.stringify(tag)} for ${pkg}; available: ${Object.keys(tags).join(', ')}`,
-    );
-  }
-  return { version, allTags: tags };
-}
-
 function parseArgs(argv) {
   const args = { check: false, write: false, force: undefined };
   for (let i = 0; i < argv.length; i++) {
@@ -108,8 +93,8 @@ const config = loadConfig();
 
 const previous = existsSync(MARKER) ? readFileSync(MARKER, 'utf8').trim() : '0.0.0';
 const resolved = args.force !== undefined
-  ? { version: args.force, allTags: undefined }
-  : await resolvePublished(config.npm.package, config.npm.tag);
+  ? { version: args.force, tag: 'forced', tags: undefined }
+  : await resolveDshVersion(config.npm.package, config.npm.tag);
 const { version } = resolved;
 
 const tauriVersion = toTauriVersion(version);
@@ -117,14 +102,15 @@ const updated = version !== previous;
 
 console.log(`package:        ${config.npm.package}`);
 console.log(`configured tag: ${config.npm.tag}`);
-// Printing every tag is what makes a stalled channel obvious: `alpha` can sit still while a
-// newer release lands on `next`, and without this the only symptom is "updated: false".
-if (resolved.allTags) {
+// Printing every tag is what makes a leapfrogged channel obvious: `next` can hold
+// an older release while `alpha` moves ahead, which is the case `newest` exists for.
+if (resolved.tags) {
   console.log(
-    `dist-tags:      ${Object.entries(resolved.allTags)
+    `dist-tags:      ${Object.entries(resolved.tags)
       .map(([tag, tagged]) => `${tag}=${tagged}`)
       .join('  ')}`,
   );
+  console.log(`resolved tag:   ${resolved.tag}`);
 }
 console.log(`previous:       ${previous}`);
 console.log(`resolved:       ${version}`);

@@ -12,6 +12,7 @@
     "prepare-bundle": "node scripts/prepare-bundle.mjs",
     "smoke": "node scripts/smoke-test.mjs",
     "test:clipboard": "node scripts/test-clipboard-shim.mjs",
+    "test:version": "node scripts/test-version-resolve.mjs",
     "dev": "npx --yes @tauri-apps/cli@^2 dev",
     "build": "node scripts/build.mjs",
     "build:no-bundle": "node scripts/build.mjs --no-bundle",
