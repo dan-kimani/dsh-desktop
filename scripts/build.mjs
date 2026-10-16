@@ -22,6 +22,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { assembleAndStamp, parseBuildArgs } from './setup.mjs';
+import { TAURI_CLI } from './lib/tauri-cli.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -33,9 +34,11 @@ if (latest) {
 }
 
 // Resolve the CLI the same way the README documents, so nothing needs installing.
+// The version is pinned in one place: see scripts/lib/tauri-cli.mjs for why a
+// floating `^2` range is not safe here.
 const cli = spawnSync(
   'npx',
-  ['--yes', '@tauri-apps/cli@^2', 'build', ...rest],
+  ['--yes', TAURI_CLI, 'build', ...rest],
   { stdio: 'inherit', cwd: ROOT, env: process.env, shell: process.platform === 'win32' },
 );
 

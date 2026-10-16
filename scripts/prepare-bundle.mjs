@@ -21,6 +21,8 @@ import { cpSync, mkdirSync, rmSync, existsSync, statSync, readdirSync } from 'no
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { TAURI_CLI } from './lib/tauri-cli.mjs';
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE = join(ROOT, 'runtime');
 const STAGE = join(ROOT, 'src-tauri', 'resources', 'runtime');
@@ -92,4 +94,4 @@ function sizeOf(path) {
 
 const mb = (sizeOf(STAGE) / 1048576).toFixed(1);
 console.log(`staged ${mb}MB at ${STAGE}`);
-console.log('\nnext: npx --yes @tauri-apps/cli@^2 build');
+console.log(`\nnext: npx --yes ${TAURI_CLI} build`);

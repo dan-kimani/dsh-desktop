@@ -32,6 +32,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { assembleAndStamp, parseBuildArgs } from './setup.mjs';
+import { TAURI_CLI } from './lib/tauri-cli.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const ATTEMPTS = 3;
@@ -107,7 +108,7 @@ for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
 
   const cli = spawnSync(
     'npx',
-    ['--yes', '@tauri-apps/cli@^2', 'build', '--bundles', flags.bundles, ...flags.rest],
+    ['--yes', TAURI_CLI, 'build', '--bundles', flags.bundles, ...flags.rest],
     { stdio: 'inherit', cwd: ROOT, env: process.env, shell: process.platform === 'win32' },
   );
   if (cli.error) throw cli.error;
