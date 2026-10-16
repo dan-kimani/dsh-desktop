@@ -81,19 +81,13 @@ jobs:
           - name: windows-x64
             os: windows-latest
             bundles: nsis
-          # macOS builds must run on macOS: bundling needs the platform SDK, and a
-          # valid .icns can only be produced by `iconutil`.
-          #
-          # Labels are pinned to images GitHub still serves. `macos-13` was retired
-          # on 2025-12-04 and `macos-14` is deprecated, so an unpinned or stale
-          # label leaves the job queued forever waiting for a runner that no longer
-          # exists. `macos-15-intel` is the supported Intel image.
-          - name: macos-arm64
-            os: macos-15
-            bundles: app,dmg
-          - name: macos-x64
-            os: macos-15-intel
-            bundles: app,dmg
+          # macOS is deliberately not built here. Its `.app` bundles fine, but the
+          # `.dmg` step runs Tauri's `bundle_dmg.sh`, which is chronically flaky on
+          # the hosted Intel image: on the last fully green run it failed on the
+          # first attempt after ~14 minutes and only passed on a retry, and on
+          # 2026-10-16 all three retries failed. The script's own output is
+          # discarded by tauri-bundler on failure, so the failing command cannot be
+          # seen. `npm run build:macos` still builds both locally on a Mac.
     steps:
       - uses: actions/checkout@v4
 
@@ -169,37 +163,11 @@ jobs:
         run: node scripts/set-version.mjs "$TAURI_VERSION"
         shell: bash
 
-      - name: Generate the macOS icon
-        # `.icns` is a macOS-only format; the script is a no-op elsewhere.
-        run: node scripts/make-icns.mjs
-
-      - name: Detach stale disk images
-        # `bundle_dmg.sh` mounts a staging volume; a leftover from an earlier run
-        # makes the next `hdiutil attach` fail. Cheap insurance on macOS. The volume
-        # is named after productName, which now contains a space, so iterate with
-        # `find -print0` instead of an unquoted glob that would split on it.
-        if: runner.os == 'macOS'
-        run: |
-          find /Volumes -maxdepth 1 -name 'DeepSeek Harness*' -print0 |
-            while IFS= read -r -d '' vol; do
-              echo "detaching $vol"
-              hdiutil detach "$vol" -force || true
-            done
-
       - name: Build the application
         # Bundle formats come from the matrix. AppImage is deliberately absent: it
         # needs FUSE via `linuxdeploy`, which could not be verified here, so it is
         # opt-in (add it to the linux rows) rather than a release risk.
-        #
-        # macOS goes through a wrapper: `bundle_dmg.sh` fails transiently on hosted
-        # runners and reports nothing when it does. That wrapper retries and, on
-        # final failure, prints what was actually mounted.
-        run: |
-          if [ "${{ runner.os }}" = "macOS" ]; then
-            node scripts/build-macos.mjs "${{ matrix.bundles }}"
-          else
-            node scripts/build.mjs --bundles "${{ matrix.bundles }}"
-          fi
+        run: node scripts/build.mjs --bundles "${{ matrix.bundles }}"
         shell: bash
 
       - name: Upload installers
@@ -212,8 +180,6 @@ jobs:
             src-tauri/target/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/rpm/*.rpm
             src-tauri/target/release/bundle/nsis/*.exe
-            src-tauri/target/release/bundle/dmg/*.dmg
-            src-tauri/target/release/bundle/macos/*.app.tar.gz
 
   # ── Publish the release and record the built version ─────────────────────────
   publish:
@@ -242,7 +208,6 @@ jobs:
           mkdir -p release
           find artifacts -type f \( \
             -name '*.deb' -o -name '*.rpm' -o -name '*.exe' \
-            -o -name '*.dmg' -o -name '*.app.tar.gz' \
           \) -exec cp {} release/ \;
           echo "Collected $(find release -type f | wc -l) artifacts:"
           ls -lh release/

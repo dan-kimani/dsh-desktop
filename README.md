@@ -1,7 +1,8 @@
 # dsh-desktop
 
 A [Tauri 2](https://v2.tauri.app/) desktop wrapper around the **DeepSeek Harness** web
-application, for **Windows**, **Linux** and **macOS**, on x64 and arm64.
+application, for **Windows** and **Linux** on x64. macOS builds from source with
+`npm run build:macos`, but is not built or released by CI — see [Known limitations](#known-limitations).
 
 It ships no application code of its own. It bundles a Node runtime plus the published
 `@deepseek-ai/dsh` npm package, boots `dsh --profile tauri` on a loopback port, and points a
@@ -177,7 +178,7 @@ sudo apt install ./DeepSeek\ Harness_<version>_amd64.deb
 `.github/workflows/release.yml` runs daily and on demand. It resolves the newest upstream
 release from the npm dist-tags named in `config/runtime.json` (`npm.tag: newest`) and compares
 it to the committed `.dsh-version`; if unchanged it does nothing. Otherwise it builds on
-`ubuntu-22.04`, `windows-latest`, `macos-15` and `macos-15-intel`, publishes `dsh-desktop-v<version>`
+`ubuntu-22.04` and `windows-latest`, publishes `dsh-desktop-v<version>`
 with the installers attached and release notes listing the commits since the previous tag, then
 commits the new marker.
 
@@ -192,13 +193,16 @@ upstream dsh version, so a build is traceable to the release it repackaged.
 
 ## Known limitations
 
-- **Windows has never been built.** The Linux path is verified end to end; Windows depends on
-  npm selecting the `win32-x64` prebuilds and on `Expand-Archive` for the Node zip. The first
-  `windows-latest` run is its real check.
-- **No code signing on any platform.** Unsigned Windows installers raise SmartScreen warnings,
-  and Gatekeeper quarantines an unsigned macOS `.dmg`, so users must clear the attribute
-  (`xattr -dr com.apple.quarantine`). Shipping to non-developers needs a Developer ID
-  certificate plus notarisation.
+- **macOS is not built by CI.** The `.app` bundles correctly on both `macos-15` and
+  `macos-15-intel`, but the `.dmg` step runs Tauri's `bundle_dmg.sh`, which is chronically flaky
+  on the hosted Intel image — on the last fully green run it failed its first attempt after about
+  14 minutes and only passed on a retry, and on 2026-10-16 all three retries failed. Tauri's
+  bundler discards the script's output on failure, so the failing command cannot be seen, and the
+  version that fixed that reporting (CLI 2.12.3) also rejects our prerelease RPM version. Build
+  locally with `npm run build:macos`; the DMG usually succeeds on a real Mac.
+- **No code signing on any platform.** Unsigned Windows installers raise SmartScreen warnings.
+  Shipping to non-developers needs a Developer ID certificate plus notarisation on macOS, and a
+  code-signing certificate on Windows.
 - **No auto-update.** Users install new releases manually. Adding it back means Tauri's signed
   updater: a minisign keypair, `plugins.updater` config, `createUpdaterArtifacts`, and a
   published manifest. The signing key cannot be rotated, so lost means every installed copy is
