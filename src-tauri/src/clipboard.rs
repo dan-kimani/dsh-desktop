@@ -17,15 +17,18 @@
 //!
 //! The bridge is deliberately Linux-only — macOS and Windows already deliver
 //! images through the paste event, so shipping the shim there would mean
-//! invoking a command that is not compiled in. On those targets [`SHIM_JS`] is
-//! empty and [`read_clipboard_image`] does not exist.
+//! invoking a command that never reads anything. On those targets [`SHIM_JS`] is
+//! empty and [`read_clipboard_image`] answers `Ok(None)`.
 //!
 //! [`read_clipboard_image`] refuses to answer unless the requesting webview is
 //! on a loopback origin — the capability that exposes it is reachable from the
 //! remote harness page, so the command must not become a general clipboard
 //! oracle for anything else the webview might navigate to.
 
-#[cfg(target_os = "linux")]
+// Imported on every target, not just Linux: `read_clipboard_image` is registered
+// unconditionally so the handler table stays uniform (see `lib.rs`), and it names
+// this type in its signature even where the body is a no-op. Gating the import to
+// Linux breaks the Windows and macOS builds while Linux stays green.
 use tauri::Webview;
 
 /// Largest clipboard image accepted, in pixels. `arboard` has already
